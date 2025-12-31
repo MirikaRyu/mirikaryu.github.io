@@ -1,0 +1,1001 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>PCIe on Mirika's Blog</title><link>https://mirikaryu.github.io/tags/pcie/</link><description>Recent content in PCIe on Mirika's Blog</description><generator>Hugo -- gohugo.io</generator><language>zh-cn</language><copyright>Mirika</copyright><lastBuildDate>Wed, 31 Dec 2025 18:25:01 +0800</lastBuildDate><atom:link href="https://mirikaryu.github.io/tags/pcie/index.xml" rel="self" type="application/rss+xml"/><item><title>QEMU/VFIO: Windows Guest 折腾记录</title><link>https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/</link><pubDate>Wed, 31 Dec 2025 18:25:01 +0800</pubDate><guid>https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/</guid><description>&lt;img src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/cover.webp" alt="Featured image of post QEMU/VFIO: Windows Guest 折腾记录" /&gt;&lt;h2 id="前言"&gt;前言
+&lt;/h2&gt;&lt;p&gt;由于小时候不懂事在沟槽的Microsoft Store上买了个Horizon 4，以及Linux(Wayland)上一直缺乏一个好用的Office软件，
+一直想搭建一个体验如同真机的Windows虚拟机，即开机接管所有外围设备并直接进入Windows，关机也会将整台电脑一起关闭。&lt;br&gt;
+你说为什么不Dual Boot🧐？&lt;br&gt;
+Hummm&amp;hellip; 答案是现在应该（大概？）没有人能够将Windows直接安装在一个LVM的logic volume上吧：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code&gt;NAME FSTYPE LABEL SIZE FSAVAIL FSUSE% MOUNTPOINTS
+sda 931.5G
+└─sda1 LVM2_member 931.5G
+├─Data-steamos btrfs 512G
+├─Data-private crypto_LUKS 80G
+├─Data-secrets crypto_LUKS 4G
+├─Data-windows 256G
+└─Data-ventoy btrfs 64G
+nvme1n1 476.9G
+└─nvme1n1p1 LVM2_member 476.9G
+├─Home-archlinux btrfs 208G 77.6G 61% /home
+├─Home-steamos btrfs 64G
+└─Home-windows btrfs 64G
+nvme0n1 232.9G
+├─nvme0n1p1 vfat EFI 6G 5.8G 3% /efi
+└─nvme0n1p2 LVM2_member 226.9G
+├─Root-swap swap 32G [SWAP]
+├─Root-archlinux btrfs 80G 50.5G 36% /
+├─Root-steamos btrfs 64G
+└─Root-windows btrfs 4G
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;&lt;del&gt;三块盘完美符合Memory Hierarchy&lt;/del&gt;&lt;br&gt;
+在这种磁盘布局下很难在不失灵活性的同时单独安装 Windows。&lt;/p&gt;
+&lt;p&gt;在继续之前先对照一下平台配置：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;CPU: AMD Ryzen 9 9900X (24)&lt;/li&gt;
+&lt;li&gt;主板: ROG STRIX B850-I GAMING WIFI&lt;/li&gt;
+&lt;li&gt;iGPU: AMD Granite Ridge [Radeon Graphics]&lt;/li&gt;
+&lt;li&gt;dGPU: AMD Radeon RX 7900 XT&lt;/li&gt;
+&lt;li&gt;Firmware: 1402 Wed 2025-11-12, AGESA 1.2.7.0&lt;/li&gt;
+&lt;li&gt;Kernel: 6.18.2&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;需要注意的是不同的板U组合对后续直通的影响很大，同时RX 7000系的显卡会有很多quirks，会导致直通流程与一般的显卡不太一样。&lt;/p&gt;
+&lt;h2 id="一些说明"&gt;一些说明
+&lt;/h2&gt;&lt;p&gt;我在接下来的步骤中将会直接使用QEMU command line启动虚拟机。&lt;br&gt;
+为什么不使用libvirt？用过，感觉很烂。这玩意对个人用户纯纯Overkill：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;XML？请输入文本。&lt;/li&gt;
+&lt;li&gt;Bloating，装完之后系统中多了一堆没用的用户/用户组和服务。&lt;/li&gt;
+&lt;li&gt;极难调试，喜欢我虚拟机启动后把你的配置文件给改了吗？&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;VFIO PCI设备直通和硬件平台本身的联系非常密切，请一定根据&lt;strong&gt;你的硬件配置&lt;/strong&gt;选择应该采用哪些步骤、如何配置。&lt;/p&gt;
+&lt;p&gt;如果你是按照我接下来的方法配置的Windows Guest，请&lt;strong&gt;绝对不要&lt;/strong&gt;在Windows中开启内核隔离/Hyper-V等依赖虚拟化的功能，
+否则重启后会卡在启动界面无法进入Greeter。&lt;br&gt;
+&lt;del&gt;如果你能在WinRE中挂载分区修改注册表那可以试试&lt;/del&gt;&lt;/p&gt;
+&lt;p&gt;虽然虚拟机到最后确实是跑在一个headless的Arch Linux上的，但是在安装Windows时由于没有显卡驱动所以可能需要使用QEMU的图形后端
+（如gtk，vnc）来显示VGA输出。&lt;br&gt;
+我这边是在另一个系统的桌面环境上安装配置完成后再迁移到目标系统的，当然在目标系统上安装图形环境后再卸载也是可行的。&lt;br&gt;
+然后在配置，安装和调试Windows的系统上需要安装以下工具：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;sudo pacman -S networkmanager dnsmasq qemu-img qemu-system-x86 qemu-ui-gtk swtpm usbutils virt-firmware
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;&lt;strong&gt;Hints:&lt;/strong&gt;&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;查看ArchWiki时最好查看其英文页面，ArchWikiCN的翻译可能会有些许滞后和缺失。&lt;/li&gt;
+&lt;li&gt;除了可以使用&lt;code&gt;man qemu&lt;/code&gt;查看整体的文档外，如果想查看某个选项/设备的参数可以使用&lt;code&gt;qemu-system-x86_64 xxx,help&lt;/code&gt;。&lt;br&gt;
+比如使用&lt;code&gt;qemu-system-x86_64 -device vfio-pci,help&lt;/code&gt;查看该设备接受的参数。&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="cpu-和芯片组"&gt;CPU 和芯片组
+&lt;/h2&gt;&lt;p&gt;先配置基本的CPU，内存和芯片组：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#75715e"&gt;# Machine&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-name windows
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-machine q35,vmport&lt;span style="color:#f92672"&gt;=&lt;/span&gt;off,smm&lt;span style="color:#f92672"&gt;=&lt;/span&gt;on
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-accel kvm
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#75715e"&gt;# SMP&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-cpu &lt;span style="color:#e6db74"&gt;&amp;#34;host,kvm=off,topoext=on,svm=on,hypervisor=on,&lt;/span&gt;&lt;span style="color:#e6db74"&gt;${&lt;/span&gt;hyperv_opts_str&lt;span style="color:#e6db74"&gt;}&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-smp 23,sockets&lt;span style="color:#f92672"&gt;=&lt;/span&gt;1,cores&lt;span style="color:#f92672"&gt;=&lt;/span&gt;23,threads&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;1&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-m 29G
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;其中&lt;code&gt;hyprv_opts_str&lt;/code&gt;如下：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#75715e"&gt;# Hyper-V Enlightenments&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;hyperv_opts&lt;span style="color:#f92672"&gt;=(&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_relaxed
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_vapic
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_spinlocks&lt;span style="color:#f92672"&gt;=&lt;/span&gt;0xfff
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_vpindex
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_synic
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_time
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_stimer
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_tlbflush
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_tlbflush_ext
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_ipi
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_stimer_direct
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_runtime
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_frequencies
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_reenlightenment
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_avic
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_xmm_input
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_vendor_id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;0123456789ab
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#f92672"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;hyperv_opts_str&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#66d9ef"&gt;$(&lt;/span&gt;IFS&lt;span style="color:#f92672"&gt;=&lt;/span&gt;,; echo &lt;span style="color:#e6db74"&gt;&amp;#34;&lt;/span&gt;&lt;span style="color:#e6db74"&gt;${&lt;/span&gt;hyperv_opts[*]&lt;span style="color:#e6db74"&gt;}&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;&lt;/span&gt;&lt;span style="color:#66d9ef"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;想使用VFIO功能芯片组只能用Q35，没的选，不加版本号默认就是最新的。&lt;code&gt;smm&lt;/code&gt;似乎Windows能用上，遂开启。
+&lt;code&gt;vmport&lt;/code&gt;用于模拟VMWare的IO Port，作用不明。&lt;br&gt;
+CPU这边则是直通宿主机的即可，&lt;code&gt;topoext&lt;/code&gt;用于在AMD CPU上开启SMT，不开会报错。剩下的&lt;code&gt;svm&lt;/code&gt;，&lt;code&gt;hyperv...&lt;/code&gt;据说可以提升Windows的性能。&lt;br&gt;
+CPU拓扑和内存如果没有什么性能需求随便分配即可，这边留了1C1G给Linux hypervisor。&lt;/p&gt;
+&lt;p&gt;如果你是经验丰富的VFIO玩家，那你可能已经注意到这边对客户机的显卡驱动隐藏了虚拟化。&lt;br&gt;
+不过按理说AMD不会像隔壁一样禁止你在虚拟机里用他的GPU，那是什么原因呢🤔？留到&lt;a class="link" href="#gpu-%e7%9b%b4%e9%80%9a" &gt;显卡直通&lt;/a&gt;的时候再讲好了（&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Hints:&lt;/strong&gt;&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;根据 ArchWiki，自 Windows 10 1803 版本及以后需要在配置内核模块参数&lt;code&gt;kvm.ignore_msrs=1&lt;/code&gt;和&lt;code&gt;kvm.report_ignored_msrs=0&lt;/code&gt;以防止蓝屏。&lt;br&gt;
+但在我这边暂未出现该情况，如有需要可以添加。&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="uefi-和-tpm2"&gt;UEFI 和 TPM2
+&lt;/h2&gt;&lt;p&gt;虽然我只打算装Windows 10 IoT，但鬼知道哪天MICRO$OFT会不会发病让你强制升级Windows 11。&lt;br&gt;
+如果要装Windows 11的话tpm2还是最好打开，不然就算装上去了更新也很麻烦。&lt;/p&gt;
+&lt;p&gt;使用swtpm模拟tpm2：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;swtpm socket &lt;span style="color:#ae81ff"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; --tpm2 &lt;span style="color:#ae81ff"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; --tpmstate dir&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;&lt;/span&gt;&lt;span style="color:#e6db74"&gt;${&lt;/span&gt;HOME&lt;span style="color:#e6db74"&gt;}&lt;/span&gt;&lt;span style="color:#e6db74"&gt;/firmware&amp;#34;&lt;/span&gt; &lt;span style="color:#ae81ff"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; --ctrl type&lt;span style="color:#f92672"&gt;=&lt;/span&gt;unixio,path&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;&lt;/span&gt;&lt;span style="color:#e6db74"&gt;${&lt;/span&gt;XDG_RUNTIME_DIR&lt;span style="color:#e6db74"&gt;}&lt;/span&gt;&lt;span style="color:#e6db74"&gt;/tpm_sock&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;传递给swtpm的目录必须存在，swtpm不会自己创建。&lt;/p&gt;
+&lt;p&gt;QEMU中的设置：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#75715e"&gt;# Firmware&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-drive &lt;span style="color:#66d9ef"&gt;if&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;pflash,format&lt;span style="color:#f92672"&gt;=&lt;/span&gt;raw,readonly&lt;span style="color:#f92672"&gt;=&lt;/span&gt;on,file&lt;span style="color:#f92672"&gt;=&lt;/span&gt;/usr/share/edk2/x64/OVMF_CODE.secboot.4m.fd
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-drive &lt;span style="color:#66d9ef"&gt;if&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;pflash,format&lt;span style="color:#f92672"&gt;=&lt;/span&gt;raw,file&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;&lt;/span&gt;$HOME&lt;span style="color:#e6db74"&gt;/firmware/nvram.fd&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-fw_cfg name&lt;span style="color:#f92672"&gt;=&lt;/span&gt;opt/ovmf/X-PciMmio64Mb,string&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;65536&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-global ICH9-LPC.disable_s3&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;1&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-global ICH9-LPC.disable_s4&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;1&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-boot menu&lt;span style="color:#f92672"&gt;=&lt;/span&gt;on,strict&lt;span style="color:#f92672"&gt;=&lt;/span&gt;on,reboot-timeout&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;2000&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-rtc base&lt;span style="color:#f92672"&gt;=&lt;/span&gt;localtime
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#75715e"&gt;# TPM2&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-chardev socket,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;ch0,path&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;&lt;/span&gt;$XDG_RUNTIME_DIR&lt;span style="color:#e6db74"&gt;/tpm_sock&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-tpmdev emulator,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;tpm0,chardev&lt;span style="color:#f92672"&gt;=&lt;/span&gt;ch0
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-device tpm-tis,tpmdev&lt;span style="color:#f92672"&gt;=&lt;/span&gt;tpm0
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;前两行指定了UEFI固件和存储设置的NVRAM文件。如果你希望使用secure boot，
+那么第一个UEFI固件必须选择带secboot字样的文件，这个在不同发行版之间的名字差别不大。&lt;br&gt;
+但对于第二个NVRAM模板文件，不同发行版之间的差异较大。如果你是Arch Linux用户，那么请参阅后面的&lt;a class="link" href="#%e5%ae%89%e5%85%a8%e5%90%af%e5%8a%a8" &gt;安全启动&lt;/a&gt;这一小节；
+如果你使用Fedora，那么应该能够找到一个enroll了微软证书的secboot NVRAM模板，直接拷贝后使用即可开启secboot.&lt;/p&gt;
+&lt;p&gt;&lt;code&gt;fw_cfg&lt;/code&gt;打开固件对于大于4G地址空间的解码支持，edk2面板中没有提供此入口，用于下文的显卡直通，不过目前感觉没啥卵用。&lt;/p&gt;
+&lt;p&gt;接下来的几行关闭了系统对于suspend(S3)和hibernate(S4)的支持以防Windows睡死，并将客户机的RTC置为local time。&lt;/p&gt;
+&lt;h2 id="pcie-拓扑"&gt;PCIe 拓扑
+&lt;/h2&gt;&lt;p&gt;本来只是想着能把设备连上就行，结果中间出了一堆问题，因此在解决问题的同时顺便学习了一下PCIe。&lt;/p&gt;
+&lt;h3 id="pcie-简介"&gt;PCIe 简介
+&lt;/h3&gt;&lt;p&gt;PCIe是现代消费级计算机中唯一的内部高速总线，负责连接CPU与几乎所有的外围设备，甚至连接CPU与CPU内部的各种功能。&lt;br&gt;
+PCIe是从PCI这个并行总线演化而来的，在软件配置上完全兼容PCI，因此在编写软件时，一般都直接称PCIe设备为PCI设备。&lt;/p&gt;
+&lt;p&gt;我们先来看一下PCIe的地址格式，BDF，即Bus:Device.Function：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code&gt;0000:BB:DD.F
+0000:0f:00.2
+&lt;/code&gt;&lt;/pre&gt;&lt;ol&gt;
+&lt;li&gt;前面的这个&lt;code&gt;0000&lt;/code&gt;是什么？这个是Domain编号，在一般的消费级系统中只有一个Domain，即Domain0。&lt;/li&gt;
+&lt;li&gt;Bus这个概念则是从PCI总线中借用过来的。在传统的PCI中，多个设备共享同一个总线并需要进行总线仲裁。&lt;br&gt;
+然而PCIe虽然叫总线，但其使用的是串行点对点通信而非PCI的并行共享总线的通信方式。&lt;br&gt;
+因此大多情况下即使在同一个Bus下的设备都是完全隔离的。所以逻辑上其实也可以像PCI那样将其当作从上游引出的物理连接来理解。&lt;/li&gt;
+&lt;li&gt;Device：没啥好说的，就是给总线上插着的设备编个号，不一定是连续的。不过基本上都是一个Bus只连接一个Device，除了下面的Multifunction。&lt;/li&gt;
+&lt;li&gt;Function出现的原因是一个物理PCI设备可能不止一个功能，&lt;del&gt;比如用显卡给手机充电&lt;/del&gt; 其每个功能都可以作为一个独立的PCI设备工作。
+因此使用这个Function Number区分不同的功能。&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;接下来看一下PCIe的拓扑结构：&lt;/p&gt;
+&lt;p&gt;&lt;img src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/img/pcie-01.webp"
+width="2027"
+height="1342"
+loading="lazy"
+alt="PCIe-Topology"
+class="gallery-image"
+data-flex-grow="151"
+data-flex-basis="362px"
+&gt;
+&lt;img src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/img/pcie-02.webp"
+width="2118"
+height="1342"
+loading="lazy"
+alt="PCIe-Switch"
+class="gallery-image"
+data-flex-grow="157"
+data-flex-basis="378px"
+&gt;&lt;/p&gt;
+&lt;p&gt;在一个纯PCIe环境中，应该只有三种设备：Root Complex(RC)，PCIe Switch和Endpoint Device：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;RC是整个PCIe拓扑的起始点，所有的下游设备都要连接到RC的端口上，也称为PCIe Root Port，即根端口。RC并不是一个具体的硬件，
+而只是一个逻辑上的概念：只要你能够满足标准规定，你在里面想怎么连，有多少个设备都可以。同时，一个系统中可以有多个RC，
+而一个RC通常会有多个Root Port以便扩展。一个系统中的RC下的设备一般都出现在Bus0，即根总线上。&lt;/li&gt;
+&lt;li&gt;PCIe Switch跟计算机网络中的交换机的作用和工作流程都非常相似，在这里其作用就是将一个来自上游的PCI Bus扩展为若干个下游的PCI Bus。
+连接上游总线的端口为Upstream Port，拓展出的端口就是Downstream Port。&lt;/li&gt;
+&lt;li&gt;Endpoint Device就是实现最终外设功能的PCI设备，比如显卡、网卡、USB控制器等。对于multifunction的设备，每个function都是一个endpoint。&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;下面以我系统中的PCIe拓扑为例：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code&gt;-[0000:00]-+-00.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Root Complex [1022:14d8]
++-00.2 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge IOMMU [1022:14d9]
++-01.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
++-01.1-[01-03]----00.0-[02-03]----00.0-[03]--+-00.0 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XT/7900 XTX/7900 GRE/7900M] [1002:744c]
+| +-00.1 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 HDMI/DP Audio [1002:ab30]
+| +-00.2 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 USB [1002:7446]
+| \-00.3 Advanced Micro Devices, Inc. [AMD/ATI] Device [1002:7444]
++-01.2-[04]----00.0 Samsung Electronics Co Ltd NVMe SSD Controller PM9A1/PM9A3/980PRO [144d:a80a]
++-02.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
++-02.1-[05-0d]----00.0-[06-0d]--+-00.0-[07]--
+| +-08.0-[08]--
+| +-09.0-[09]--
+| +-0a.0-[0a]----00.0 Intel Corporation Ethernet Controller I226-V [8086:125c]
+| +-0b.0-[0b]----00.0 MEDIATEK Corp. MT7925 802.11be 160MHz 2x2 PCIe Wireless Network Adapter [Filogic 360] [14c3:7925]
+| +-0c.0-[0c]----00.0 Advanced Micro Devices, Inc. [AMD] 800 Series Chipset USB 3.x XHCI Controller [1022:43fc]
+| \-0d.0-[0d]----00.0 Advanced Micro Devices, Inc. [AMD] 600 Series Chipset SATA Controller [1022:43f6]
++-02.2-[0e]----00.0 Phison Electronics Corporation E12 NVMe Controller [1987:5012]
++-03.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
++-04.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
++-08.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
++-08.1-[0f]--+-00.0 Advanced Micro Devices, Inc. [AMD/ATI] Granite Ridge [Radeon Graphics] [1002:13c0]
+| +-00.1 Advanced Micro Devices, Inc. [AMD/ATI] Radeon High Definition Audio Controller [1002:1640]
+| +-00.2 Advanced Micro Devices, Inc. [AMD] Family 19h PSP/CCP [1022:1649]
+| +-00.3 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b6]
+| \-00.4 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b7]
++-08.3-[10]----00.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 2.0 xHCI [1022:15b8]
++-14.0 Advanced Micro Devices, Inc. [AMD] FCH SMBus Controller [1022:790b]
++-14.3 Advanced Micro Devices, Inc. [AMD] FCH LPC Bridge [1022:790e]
++-18.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 0 [1022:14e0]
++-18.1 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 1 [1022:14e1]
++-18.2 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 2 [1022:14e2]
++-18.3 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 3 [1022:14e3]
++-18.4 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 4 [1022:14e4]
++-18.5 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 5 [1022:14e5]
++-18.6 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 6 [1022:14e6]
+\-18.7 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 7 [1022:14e7]
+&lt;/code&gt;&lt;/pre&gt;&lt;pre tabindex="0"&gt;&lt;code&gt;00:00.0 Host bridge [0600]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Root Complex [1022:14d8]
+00:00.2 IOMMU [0806]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge IOMMU [1022:14d9]
+00:01.0 Host bridge [0600]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
+00:01.1 PCI bridge [0604]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge GPP Bridge [1022:14db]
+00:01.2 PCI bridge [0604]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge GPP Bridge [1022:14db]
+00:02.0 Host bridge [0600]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
+00:02.1 PCI bridge [0604]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge GPP Bridge [1022:14db]
+00:02.2 PCI bridge [0604]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge GPP Bridge [1022:14db]
+00:03.0 Host bridge [0600]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
+00:04.0 Host bridge [0600]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
+00:08.0 Host bridge [0600]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
+00:08.1 PCI bridge [0604]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Internal GPP Bridge to Bus [C:A] [1022:14dd]
+00:08.3 PCI bridge [0604]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Internal GPP Bridge to Bus [C:A] [1022:14dd]
+00:14.0 SMBus [0c05]: Advanced Micro Devices, Inc. [AMD] FCH SMBus Controller [1022:790b] (rev 71)
+00:14.3 ISA bridge [0601]: Advanced Micro Devices, Inc. [AMD] FCH LPC Bridge [1022:790e] (rev 51)
+00:18.0 Host bridge [0600]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 0 [1022:14e0]
+00:18.1 Host bridge [0600]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 1 [1022:14e1]
+00:18.2 Host bridge [0600]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 2 [1022:14e2]
+00:18.3 Host bridge [0600]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 3 [1022:14e3]
+00:18.4 Host bridge [0600]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 4 [1022:14e4]
+00:18.5 Host bridge [0600]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 5 [1022:14e5]
+00:18.6 Host bridge [0600]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 6 [1022:14e6]
+00:18.7 Host bridge [0600]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 7 [1022:14e7]
+01:00.0 PCI bridge [0604]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 10 XL Upstream Port of PCI Express Switch [1002:1478] (rev 10)
+02:00.0 PCI bridge [0604]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 10 XL Downstream Port of PCI Express Switch [1002:1479] (rev 10)
+03:00.0 VGA compatible controller [0300]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XT/7900 XTX/7900 GRE/7900M] [1002:744c] (rev cc)
+03:00.1 Audio device [0403]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 HDMI/DP Audio [1002:ab30]
+03:00.2 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 USB [1002:7446]
+03:00.3 Serial bus controller [0c80]: Advanced Micro Devices, Inc. [AMD/ATI] Device [1002:7444]
+04:00.0 Non-Volatile memory controller [0108]: Samsung Electronics Co Ltd NVMe SSD Controller PM9A1/PM9A3/980PRO [144d:a80a]
+05:00.0 PCI bridge [0604]: Advanced Micro Devices, Inc. [AMD] 600 Series Chipset PCIe Switch Upstream Port [1022:43f4] (rev 01)
+06:00.0 PCI bridge [0604]: Advanced Micro Devices, Inc. [AMD] 600 Series Chipset PCIe Switch Downstream Port [1022:43f5] (rev 01)
+06:08.0 PCI bridge [0604]: Advanced Micro Devices, Inc. [AMD] 600 Series Chipset PCIe Switch Downstream Port [1022:43f5] (rev 01)
+06:09.0 PCI bridge [0604]: Advanced Micro Devices, Inc. [AMD] 600 Series Chipset PCIe Switch Downstream Port [1022:43f5] (rev 01)
+06:0a.0 PCI bridge [0604]: Advanced Micro Devices, Inc. [AMD] 600 Series Chipset PCIe Switch Downstream Port [1022:43f5] (rev 01)
+06:0b.0 PCI bridge [0604]: Advanced Micro Devices, Inc. [AMD] 600 Series Chipset PCIe Switch Downstream Port [1022:43f5] (rev 01)
+06:0c.0 PCI bridge [0604]: Advanced Micro Devices, Inc. [AMD] 600 Series Chipset PCIe Switch Downstream Port [1022:43f5] (rev 01)
+06:0d.0 PCI bridge [0604]: Advanced Micro Devices, Inc. [AMD] 600 Series Chipset PCIe Switch Downstream Port [1022:43f5] (rev 01)
+0a:00.0 Ethernet controller [0200]: Intel Corporation Ethernet Controller I226-V [8086:125c] (rev 06)
+0b:00.0 Network controller [0280]: MEDIATEK Corp. MT7925 802.11be 160MHz 2x2 PCIe Wireless Network Adapter [Filogic 360] [14c3:7925]
+0c:00.0 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] 800 Series Chipset USB 3.x XHCI Controller [1022:43fc] (rev 01)
+0d:00.0 SATA controller [0106]: Advanced Micro Devices, Inc. [AMD] 600 Series Chipset SATA Controller [1022:43f6] (rev 01)
+0e:00.0 Non-Volatile memory controller [0108]: Phison Electronics Corporation E12 NVMe Controller [1987:5012] (rev 01)
+0f:00.0 VGA compatible controller [0300]: Advanced Micro Devices, Inc. [AMD/ATI] Granite Ridge [Radeon Graphics] [1002:13c0] (rev c2)
+0f:00.1 Audio device [0403]: Advanced Micro Devices, Inc. [AMD/ATI] Radeon High Definition Audio Controller [1002:1640]
+0f:00.2 Encryption controller [1080]: Advanced Micro Devices, Inc. [AMD] Family 19h PSP/CCP [1022:1649]
+0f:00.3 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b6]
+0f:00.4 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b7]
+10:00.0 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 2.0 xHCI [1022:15b8]
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;可以看到所有的拓扑都是从根总线&lt;code&gt;0000:00&lt;/code&gt;开始的。然后在其上面连接的是CPU内部的各种设备，例如Data Fabric，XXX Bridge，SMBus控制器等。
+注意有缩进的地方并不是直接连接在根总线上的，而是连接到了GPP Bridge的下游端口上。这一大堆直接连接到根总线上的设备就组成了这个系统的RC。
+尽管这些设备可以被lspci列出，但这些设备并不一定是PCI设备，可能使用了其他片上互联的方式，只是暴露了PCI接口供内核进行管理。
+那RC的Root Port在哪里呢？稍加观察可以发现所有的外围设备都是从GPP Bridge引出的，因此这个GPP Bridge就是RC的根端口。&lt;/p&gt;
+&lt;p&gt;这里有必要说明一下什么是bridge。Bridge就是将两个不同总线连接到一起的设备，这两个总线可以是不同类型的，比如PCIe和LPC；
+也可以是相同类型的，比如PCIe和PCIe，也就是PCIe Switch。所以bridge还有一个重要作用就是扩展已有的总线。&lt;/p&gt;
+&lt;p&gt;划分完RC之后剩下的部分就是一个典型的PCIe拓扑了。系统中总共有6个GPP Bridge，就是6个Root Port，其中有两个是internal的。
+Internal的部分用于连接CPU内的非核心功能，比如USB控制器，核显以及AMD的PSP（这玩意是个ARM核）。剩下的4个根端口，&lt;code&gt;00:01.1&lt;/code&gt;连接了显卡，
+&lt;code&gt;00:01.2&lt;/code&gt;连接的是第一块SSD，&lt;code&gt;00:02.1&lt;/code&gt;连接到了南桥芯片组（其实就是个Switch加俩Controller，甚至可以当作PCIe扩展卡脱离AMD平台单独使用🤣），
+&lt;code&gt;00:02.2&lt;/code&gt;与另一块SSD相连。最后南桥的7个Downstream Port中有4个分别连接了网卡，USB控制器和AHCI控制器。&lt;/p&gt;
+&lt;h3 id="配置-pcie-拓扑"&gt;配置 PCIe 拓扑
+&lt;/h3&gt;&lt;p&gt;既然已经大致了解了PCIe，那么就可以使用以下配置描述一个相对真实的拓扑了：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#75715e"&gt;# PCIe Topology&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-device pcie-root-port,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;rp0,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;pcie.0,slot&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;1&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-device x3130-upstream,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swu0,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;rp0
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-device xio3130-downstream,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swd0,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swu0,slot&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;4&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-device xio3130-downstream,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swd1,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swu0,slot&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;5&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-device xio3130-downstream,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swd2,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swu0,slot&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;6&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-device pcie-root-port,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;rp1,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;pcie.0,slot&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;2&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-device x3130-upstream,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swu1,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;rp1
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-device xio3130-downstream,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swd3,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swu1,slot&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;7&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-device xio3130-downstream,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swd4,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swu1,slot&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;8&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-device pcie-root-port,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;rp2,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;pcie.0,slot&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;3&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;先从根总线上引出三个根端口分别用于连接网卡和存储、USB控制器以及显卡。&lt;code&gt;pcie-root-port&lt;/code&gt;就类似于上文的&lt;code&gt;GPP Bridge&lt;/code&gt;，用于从RC中引出根端口。
+而&lt;code&gt;id&lt;/code&gt;，顾名思义，就是为该设备起个别名以便于引用；&lt;code&gt;bus&lt;/code&gt;则是指该设备要连接到哪个总线上。&lt;/p&gt;
+&lt;p&gt;至于&lt;code&gt;chassis&lt;/code&gt;和&lt;code&gt;slot&lt;/code&gt;，非常奇怪，我几乎找不到说明这些参数的文档。
+QEMU的&lt;a class="link" href="https://github.com/qemu/qemu/blob/master/docs/pcie.txt" target="_blank" rel="noopener"
+&gt;文档&lt;/a&gt;中也只是提到了只需要确保每个设备的(chassis,slot)组合不同即可。
+LLM认为&lt;code&gt;chassis&lt;/code&gt;对应的是实际的机箱，&lt;code&gt;slot&lt;/code&gt;对应的就是每个机箱中实际的PCIe物理插槽。
+实测发现默认情况下&lt;code&gt;chassis&lt;/code&gt;可以不用设置，只要通过不同的&lt;code&gt;slot&lt;/code&gt;区分就行。&lt;/p&gt;
+&lt;p&gt;最后有了Root Port后只需要在前两个需要连接多个下游设备的端口上放上两个交换机即可。&lt;/p&gt;
+&lt;p&gt;至于为什么不直接将所有设备作为RCiEP连接到根总线？&lt;br&gt;
+根据&lt;a class="link" href="https://forum.level1techs.com/t/increasing-vfio-vga-performance/133443" target="_blank" rel="noopener"
+&gt;这篇帖子&lt;/a&gt;，
+这样做似乎会有导致Windows将设备识别为PCI设备的风险。&lt;/p&gt;
+&lt;p&gt;所有设备配置好后在虚拟机内应该可以获得如下的PCIe拓扑：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code&gt;-[0000:00]-+-00.0 Intel Corporation 82G33/G31/P35/P31 Express DRAM Controller [8086:29c0]
++-01.0-[01-05]----00.0-[02-05]--+-00.0-[03]----00.0 Red Hat, Inc. Virtio 1.0 network device [1af4:1041]
+| +-01.0-[04]----00.0 Red Hat, Inc. Virtio 1.0 block device [1af4:1042]
+| \-02.0-[05]----00.0 Red Hat, Inc. Virtio 1.0 block device [1af4:1042]
++-02.0-[06-09]----00.0-[07-09]--+-00.0-[08]----00.0 Advanced Micro Devices, Inc. [AMD] 800 Series Chipset USB 3.x XHCI Controller [1022:43fc]
+| \-01.0-[09]----00.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b6]
++-03.0-[0a]--+-00.0 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XT/7900 XTX/7900 GRE/7900M] [1002:744c]
+| +-00.1 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 HDMI/DP Audio [1002:ab30]
+| +-00.2 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 USB [1002:7446]
+| \-00.3 Advanced Micro Devices, Inc. [AMD/ATI] Device [1002:7444]
++-1f.0 Intel Corporation 82801IB (ICH9) LPC Interface Controller [8086:2918]
++-1f.2 Intel Corporation 82801IR/IO/IH (ICH9R/DO/DH) 6 port SATA Controller [AHCI mode] [8086:2922]
+\-1f.3 Intel Corporation 82801I (ICH9 Family) SMBus Controller [8086:2930]
+&lt;/code&gt;&lt;/pre&gt;&lt;h2 id="网络配置"&gt;网络配置
+&lt;/h2&gt;&lt;p&gt;对于没有什么特殊需求的情况，选择NAT即可。&lt;del&gt;其实是辣鸡消费级无线网卡不支持桥接&lt;/del&gt;&lt;/p&gt;
+&lt;h3 id="配置-networkmanager"&gt;配置 Networkmanager
+&lt;/h3&gt;&lt;p&gt;这里使用的是Networkmanager + dnsmasq的组合，从而免去配置nftable的麻烦。
+由于Networkmanager主要管理本地链路，因此需要dnsmasq作为DHCP服务器，不过一般不需要自己手动配置。&lt;/p&gt;
+&lt;p&gt;先使用&lt;code&gt;nmcli&lt;/code&gt;创建一个名字为&lt;code&gt;virbr0&lt;/code&gt;的网桥并关闭stp：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;nmcli connection add type bridge ifname virbr0 stp off
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;这边网桥的名字最好就叫&lt;code&gt;virbr0&lt;/code&gt;，否则需要修改&lt;code&gt;/etc/qemu/bridge.conf&lt;/code&gt;添加allow规则，不然虚拟机启动时会被QEMU的ACL规则阻止。&lt;/p&gt;
+&lt;p&gt;然后设置规则：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;nmcli connection modify bridge-virbr0 ipv4.method shared
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;nmcli connection modify bridge-virbr0 ipv6.method shared
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;到此，在一般网络环境下的Host的网络配置就完成了。&lt;/p&gt;
+&lt;p&gt;如果很不巧，你使用的也是类似校园网这一类不支持IPv6 PD(Prefix Delegation)的网络，那么进入虚拟机后应该会发现没有IPv6的地址。&lt;br&gt;
+而且由于NetworkManager在IPv6模式下似乎不会自动进行NAT，因此需要我们手动配置来实现IPv6的NAT。&lt;/p&gt;
+&lt;p&gt;先规划一段ULA地址，并将其手动分配给虚拟机网桥：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;nmcli connection modify bridge-virbr0 ipv6.addresses fd16:959a:4569::/48
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;注意改完之后其&lt;code&gt;ipv6.method&lt;/code&gt;还要保持为&lt;code&gt;shared&lt;/code&gt;。&lt;/p&gt;
+&lt;p&gt;然后修改&lt;code&gt;/etc/nftables.conf&lt;/code&gt;加入IPv6的NAT规则：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code&gt;table ip6 nat {
+chain postrouting {
+type nat hook postrouting priority srcnat; policy accept;
+oifname != &amp;#34;lo&amp;#34; masquerade
+}
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;如果原来的文件中包含一些防火墙之类的默认配置，请根据需求决定是否保留。&lt;br&gt;
+更改完后启用或者重启nftable.service即可：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;sudo systemctl enable --now nftables.service
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h3 id="为客户机添加网卡"&gt;为客户机添加网卡
+&lt;/h3&gt;&lt;p&gt;先使用&lt;code&gt;openssl&lt;/code&gt;生成一串随机数作为网卡的MAC地址：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;openssl rand -hex &lt;span style="color:#ae81ff"&gt;4&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;pre tabindex="0"&gt;&lt;code&gt;cb25ff96
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;那么其MAC地址就为&lt;code&gt;52:54:cb:25:ff:96&lt;/code&gt;，注意要以&lt;code&gt;52:54&lt;/code&gt;开头。&lt;/p&gt;
+&lt;p&gt;然后将网卡作为PCI设备连接至第一个交换机的下行口即可：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#75715e"&gt;# Network&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-netdev bridge,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;net0,br&lt;span style="color:#f92672"&gt;=&lt;/span&gt;virbr0
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-device virtio-net-pci,netdev&lt;span style="color:#f92672"&gt;=&lt;/span&gt;net0,mac&lt;span style="color:#f92672"&gt;=&lt;/span&gt;52:54:cb:25:ff:96,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swd0
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;在客户机中直接ssh到其显示的网关即可和宿主机建立连接。&lt;/p&gt;
+&lt;h2 id="存储配置"&gt;存储配置
+&lt;/h2&gt;&lt;p&gt;先创建一个64GiB的QEMU qcow2镜像作为Windows的系统盘：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;qemu-img create -f qcow2 rootfs.qcow2 -o nocow&lt;span style="color:#f92672"&gt;=&lt;/span&gt;on 64G
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;如果你使用的是Btrfs，需要像上面这样关闭qcow2镜像的COW功能。&lt;/p&gt;
+&lt;p&gt;接下来需要准备一个Windows安装ISO和一个virtio的Windows驱动ISO，以及找个块设备作为Windows的数据盘：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#75715e"&gt;# Storage&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-drive &lt;span style="color:#66d9ef"&gt;if&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;none,media&lt;span style="color:#f92672"&gt;=&lt;/span&gt;cdrom,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;cd0,file&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;&lt;/span&gt;$HOME&lt;span style="color:#e6db74"&gt;/storage/Windows10-21H2-LTSC-IoT.iso&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-drive &lt;span style="color:#66d9ef"&gt;if&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;none,media&lt;span style="color:#f92672"&gt;=&lt;/span&gt;cdrom,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;cd1,file&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;&lt;/span&gt;$HOME&lt;span style="color:#e6db74"&gt;/storage/virtio-win.iso&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-drive &lt;span style="color:#66d9ef"&gt;if&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;none,format&lt;span style="color:#f92672"&gt;=&lt;/span&gt;qcow2,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;disk0,file&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;&lt;/span&gt;$HOME&lt;span style="color:#e6db74"&gt;/storage/rootfs.qcow2&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-drive &lt;span style="color:#66d9ef"&gt;if&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;none,format&lt;span style="color:#f92672"&gt;=&lt;/span&gt;raw,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;disk1,file&lt;span style="color:#f92672"&gt;=&lt;/span&gt;/dev/Data/windows
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;然后再将以上的存储插入相应设备并连接到总线上：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-device ide-cd,drive&lt;span style="color:#f92672"&gt;=&lt;/span&gt;cd0,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;ide.0,bootindex&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;1&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-device ide-cd,drive&lt;span style="color:#f92672"&gt;=&lt;/span&gt;cd1,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;ide.1
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-device virtio-blk-pci,drive&lt;span style="color:#f92672"&gt;=&lt;/span&gt;disk0,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swd1,bootindex&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;0&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-device virtio-blk-pci,drive&lt;span style="color:#f92672"&gt;=&lt;/span&gt;disk1,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swd2
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Q35芯片组的RC自带一个AHCI控制器，因此可以直接将&lt;code&gt;cd0&lt;/code&gt;和&lt;code&gt;cd1&lt;/code&gt;作为SATA设备连接上去。&lt;br&gt;
+接着再将Windows需要的系统盘和数据盘分别作为PCI设备连接至交换机上。&lt;br&gt;
+最后这里使用&lt;code&gt;bootindex&lt;/code&gt;将启动顺序调整为磁盘 -&amp;gt; 安装ISO，就可以在安装完成后无须手动调整启动顺序了。&lt;del&gt;虽然安装程序会自己调&lt;/del&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Hints:&lt;/strong&gt;&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;
+&lt;p&gt;如果需要像上面这样使用&lt;code&gt;ide-cd&lt;/code&gt;连接多个设备，则需要手动指定每个设备的bus，否则会全部默认连接到&lt;code&gt;ide.0&lt;/code&gt;上然后出错。&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;由于这边使用了virtio磁盘，因此需要在Windows安装界面手动加载virtio驱动，不然只会看到空空如也的磁盘列表。&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;注意这边传给客户机的block device和在物理机上看到的是截然不同的。物理机的系统知道这个block device是一个磁盘的分区或者logic volume，
+但虚拟机看到的是一个「设备」，也就是无分区表的磁盘。因此你在Windows Guest中使用NTFS格式化完该块设备后，在宿主机中
+应该是不能直接识别出文件系统类型并挂载的 &lt;strong&gt;（不要在客户机运行的同时尝试在宿主机挂载）&lt;/strong&gt;。&lt;br&gt;
+理论上来说，如果客户机能够将整个磁盘格式化为无分区表文件系统的话，宿主机应该是可以直接识别到的。
+但很遗憾，尽管技术上允许，这个极为先进的N(nao)T(tan)F(file)S(system)却禁止你这么做🤡 &lt;del&gt;你那ReFS怎么样了&lt;/del&gt;&lt;/p&gt;
+&lt;p&gt;不过既然我们已经知道其结构了，想挂载还是非常容易的：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;sudo losetup -fP /dev/Data/windows
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;然后&lt;code&gt;mount /dev/loopXpY&lt;/code&gt;即可。&lt;/p&gt;
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="usb-直通"&gt;USB 直通
+&lt;/h2&gt;&lt;h3 id="为什么要直通控制器"&gt;为什么要直通控制器？
+&lt;/h3&gt;&lt;p&gt;直通宿主机的PCIe USB Controller就是相当于将其管理的整一棵USB树交给客户机进行管理，这可以使得客户机有更接近真机的体验。&lt;br&gt;
+控制器直通对设备热插拔的支持远比直通单个USB设备要好，而且一般一台电脑中的USB控制器的数量比较少，
+直通起来也远比单独指定USB Device/Hub要方便。&lt;/p&gt;
+&lt;h3 id="确定-iommu-group"&gt;确定 IOMMU Group
+&lt;/h3&gt;&lt;p&gt;在继续之前需要确保你的系统符合以下要求：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;CPU支持硬件虚拟化。&lt;/li&gt;
+&lt;li&gt;CPU/主板支持并开启IOMMU和中断重映射，可以使用以下命令验证：
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;sudo dmesg | grep -e IOMMU -e remapping
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;然后使用以下脚本查看自己系统的IOMMU分组情况：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#75715e"&gt;#! /usr/bin/env bash
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;shopt -s nullglob
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#66d9ef"&gt;for&lt;/span&gt; g in &lt;span style="color:#66d9ef"&gt;$(&lt;/span&gt;find /sys/kernel/iommu_groups/* -maxdepth &lt;span style="color:#ae81ff"&gt;0&lt;/span&gt; -type d | sort -V&lt;span style="color:#66d9ef"&gt;)&lt;/span&gt;; &lt;span style="color:#66d9ef"&gt;do&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; echo &lt;span style="color:#e6db74"&gt;&amp;#34;IOMMU Group &lt;/span&gt;&lt;span style="color:#e6db74"&gt;${&lt;/span&gt;g##*/&lt;span style="color:#e6db74"&gt;}&lt;/span&gt;&lt;span style="color:#e6db74"&gt;:&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#66d9ef"&gt;for&lt;/span&gt; d in $g/devices/*; &lt;span style="color:#66d9ef"&gt;do&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; echo -e &lt;span style="color:#e6db74"&gt;&amp;#34;\t&lt;/span&gt;&lt;span style="color:#66d9ef"&gt;$(&lt;/span&gt;lspci -nns &lt;span style="color:#e6db74"&gt;${&lt;/span&gt;d##*/&lt;span style="color:#e6db74"&gt;}&lt;/span&gt;&lt;span style="color:#66d9ef"&gt;)&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#66d9ef"&gt;done&lt;/span&gt;;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#66d9ef"&gt;done&lt;/span&gt;;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;输出应该类似于：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code&gt;...
+IOMMU Group 15:
+03:00.0 VGA compatible controller [0300]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XT/7900 XTX/7900 GRE/7900M] [1002:744c] (rev cc)
+IOMMU Group 16:
+03:00.1 Audio device [0403]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 HDMI/DP Audio [1002:ab30]
+IOMMU Group 17:
+03:00.2 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 USB [1002:7446]
+IOMMU Group 18:
+03:00.3 Serial bus controller [0c80]: Advanced Micro Devices, Inc. [AMD/ATI] Device [1002:7444]
+...
+IOMMU Group 31:
+0f:00.2 Encryption controller [1080]: Advanced Micro Devices, Inc. [AMD] Family 19h PSP/CCP [1022:1649]
+IOMMU Group 32:
+0f:00.3 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b6]
+IOMMU Group 33:
+0f:00.4 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b7]
+IOMMU Group 34:
+10:00.0 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 2.0 xHCI [1022:15b8]
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;应该能够看到每一个PCI设备都被划分到了某个Group中。在直通时，每一个IOMMU Group是最小单位。
+也就是直通组内的任何一个设备都必须一起直通组内的的其余设备。&lt;br&gt;
+在我的系统上，每个USB Controller都在一个单独的IOMMU Group中，因此&lt;strong&gt;单从这个方面看&lt;/strong&gt;，我的每个controller可以单独直通。&lt;/p&gt;
+&lt;h3 id="确定具体物理接口与控制器的对应关系"&gt;确定具体物理接口与控制器的对应关系
+&lt;/h3&gt;&lt;p&gt;由于不太可能将所有的控制器直通给客户机，所以有必要分清哪些接口是归宿主机管的。这也能够方便后续在两台机器之间切换设备。&lt;/p&gt;
+&lt;p&gt;先看看系统中有哪些USB控制器：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;lspci -nn | grep USB
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;pre tabindex="0"&gt;&lt;code&gt;03:00.2 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 USB [1002:7446]
+0c:00.0 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] 800 Series Chipset USB 3.x XHCI Controller [1022:43fc] (rev 01)
+0f:00.3 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b6]
+0f:00.4 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b7]
+10:00.0 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 2.0 xHCI [1022:15b8]
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;接下来使用这条命令在sysfs中查找对应和IOMMU Group：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#66d9ef"&gt;for&lt;/span&gt; usb_ctrl in /sys/bus/pci/devices/*/usb*; &lt;span style="color:#66d9ef"&gt;do&lt;/span&gt; &lt;span style="color:#ae81ff"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; pci_path&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;${&lt;/span&gt;usb_ctrl%/*&lt;span style="color:#e6db74"&gt;}&lt;/span&gt;; &lt;span style="color:#ae81ff"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; iommu_group&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#66d9ef"&gt;$(&lt;/span&gt;readlink $pci_path/iommu_group&lt;span style="color:#66d9ef"&gt;)&lt;/span&gt;; &lt;span style="color:#ae81ff"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; echo &lt;span style="color:#e6db74"&gt;&amp;#34;Bus &lt;/span&gt;&lt;span style="color:#66d9ef"&gt;$(&lt;/span&gt;cat $usb_ctrl/busnum&lt;span style="color:#66d9ef"&gt;)&lt;/span&gt;&lt;span style="color:#e6db74"&gt; --&amp;gt; &lt;/span&gt;&lt;span style="color:#e6db74"&gt;${&lt;/span&gt;pci_path##*/&lt;span style="color:#e6db74"&gt;}&lt;/span&gt;&lt;span style="color:#e6db74"&gt; (IOMMU group &lt;/span&gt;&lt;span style="color:#e6db74"&gt;${&lt;/span&gt;iommu_group##*/&lt;span style="color:#e6db74"&gt;}&lt;/span&gt;&lt;span style="color:#e6db74"&gt;)&amp;#34;&lt;/span&gt;; &lt;span style="color:#ae81ff"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; lsusb -s &lt;span style="color:#e6db74"&gt;${&lt;/span&gt;usb_ctrl#*/usb&lt;span style="color:#e6db74"&gt;}&lt;/span&gt;:; echo; &lt;span style="color:#ae81ff"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#66d9ef"&gt;done&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;pre tabindex="0"&gt;&lt;code&gt;Bus 1 --&amp;gt; 0000:03:00.2 (IOMMU group 17)
+Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
+Bus 2 --&amp;gt; 0000:03:00.2 (IOMMU group 17)
+Bus 002 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub
+Bus 3 --&amp;gt; 0000:0c:00.0 (IOMMU group 26)
+Bus 003 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
+Bus 003 Device 002: ID 0b05:19d0 ASUSTek Computer, Inc. ROG STRIX SCOPE NX TKL MOONLIGHT WHITE
+Bus 003 Device 003: ID 0b05:1be1 ASUSTek Computer, Inc. USB Audio
+Bus 003 Device 004: ID 0b05:19af ASUSTek Computer, Inc. AURA LED Controller
+Bus 003 Device 005: ID 373b:1085 VXE VXE Mouse 1K Dongle
+Bus 003 Device 006: ID 13d3:3602 IMC Networks Wireless_Device
+Bus 4 --&amp;gt; 0000:0c:00.0 (IOMMU group 26)
+Bus 004 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub
+Bus 5 --&amp;gt; 0000:0f:00.3 (IOMMU group 32)
+Bus 005 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
+Bus 6 --&amp;gt; 0000:0f:00.3 (IOMMU group 32)
+Bus 006 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub
+Bus 7 --&amp;gt; 0000:0f:00.4 (IOMMU group 33)
+Bus 007 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
+Bus 007 Device 002: ID 05e3:0610 Genesys Logic, Inc. Hub
+Bus 007 Device 003: ID 2bdf:028a SN0002 HIK 2K Camera
+Bus 8 --&amp;gt; 0000:0f:00.4 (IOMMU group 33)
+Bus 008 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub
+Bus 008 Device 002: ID 05e3:0620 Genesys Logic, Inc. GL3523 Hub
+Bus 9 --&amp;gt; 0000:10:00.0 (IOMMU group 34)
+Bus 009 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;通过以上步骤我们拿到的是USB控制器到USB Bus的映射。那怎么拿到对物理接口的映射？&lt;br&gt;
+拿一个USB设备把你电脑上的所有USB口插一遍即可😯&lt;br&gt;
+如果看到某个USB设备和某个控制器一起出现，那么该接口就是属于这个Controller控制的。&lt;/p&gt;
+&lt;h3 id="确定直通的控制器"&gt;确定直通的控制器
+&lt;/h3&gt;&lt;p&gt;&lt;strong&gt;⚠️警告：接下来的操作可能会导致电脑Freeze/Kernel Panic，请提前保存好数据。&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;既然现在拿到Controller和物理接口的对应关系，是不是就可以随心所欲分配了呢？&lt;br&gt;
+Humm&amp;hellip; 没这么简单。&lt;/p&gt;
+&lt;p&gt;由于一些神秘原因，如果将宿主机上的某些USB Controller绑定到vfio-pci驱动并交给客户机使用时会导致整台电脑直接Freeze
+（至少在我这里是这样）。因此必须先测试出有哪些控制器/控制器组合是不能直通的。&lt;/p&gt;
+&lt;p&gt;先看看如何将一个USB控制器分配给客户机：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#75715e"&gt;# Rebind the controller to vfio-pci&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;echo &lt;span style="color:#e6db74"&gt;&amp;#39;0000:0c:00.0&amp;#39;&lt;/span&gt; | sudo tee /sys/bus/pci/drivers/xhci_hcd/unbind
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;echo &lt;span style="color:#e6db74"&gt;&amp;#39;1022 43fc&amp;#39;&lt;/span&gt; | sudo tee /sys/bus/pci/drivers/vfio-pci/new_id
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;然后在QEMU中：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-device vfio-pci,host&lt;span style="color:#f92672"&gt;=&lt;/span&gt;0c:00.0,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swd3
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;注意unbind时使用的是PCI地址，rebind时使用的是设备ID。&lt;br&gt;
+然后尝试所有的USB控制器的组合，看看哪些直通给客户机后宿主机还能存活的（调整完后必须启动客户机，只是rebind可能不足以暴露问题）。
+如果是显卡上的USB控制器一般就不需要测试了，因为通常要和GPU一起直通给客户机。&lt;br&gt;
+现在（以及下面直通GPU时）直接启动虚拟机会遇到权限问题，临时测试使用&lt;code&gt;chmod&lt;/code&gt;直接更改权限即可，在实装时会编写udev rules来解决。&lt;/p&gt;
+&lt;p&gt;最后我测试出来的可以直通的组合是：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#75715e"&gt;## USB Controller&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;echo &lt;span style="color:#e6db74"&gt;&amp;#39;0000:0c:00.0&amp;#39;&lt;/span&gt; &amp;gt; /sys/bus/pci/drivers/xhci_hcd/unbind
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;echo &lt;span style="color:#e6db74"&gt;&amp;#39;0000:0f:00.3&amp;#39;&lt;/span&gt; &amp;gt; /sys/bus/pci/drivers/xhci_hcd/unbind
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;echo &lt;span style="color:#e6db74"&gt;&amp;#39;1022 43fc&amp;#39;&lt;/span&gt; &amp;gt; /sys/bus/pci/drivers/vfio-pci/new_id
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;echo &lt;span style="color:#e6db74"&gt;&amp;#39;1022 15b6&amp;#39;&lt;/span&gt; &amp;gt; /sys/bus/pci/drivers/vfio-pci/new_id
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-device vfio-pci,host&lt;span style="color:#f92672"&gt;=&lt;/span&gt;0c:00.0,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swd3
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-device vfio-pci,host&lt;span style="color:#f92672"&gt;=&lt;/span&gt;0f:00.3,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swd4
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;br&gt;
+&lt;p&gt;&lt;strong&gt;Hints:&lt;/strong&gt;&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;
+&lt;p&gt;带有ACS补丁的内核可以违反IOMMU Group作为最小直通单元的限制，
+但有&lt;a class="link" href="https://vfio.blogspot.com/2014/08/iommu-groups-inside-and-out.html" target="_blank" rel="noopener"
+&gt;潜在风险&lt;/a&gt;。linux-zen内核包含了此补丁。&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;如果你的平台不支持中断重映射，可以在模块参数中添加&lt;code&gt;allow_unsafe_interrupts&lt;/code&gt;：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code class="language-conf" data-lang="conf"&gt;# /etc/modprobe.d/vfio.conf
+options vfio_iommu_type1 allow_unsafe_interrupts=1
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;有的指南说需要在BIOS中启用X2APIC，但我实际测试后发现会导致问题。&lt;br&gt;
+使用默认设置时出现的是如下启动日志：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code&gt;12月 30 11:07:19 archlinux kernel: AMD-Vi: Virtual APIC enabled
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;也能够正常使用🤖&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;最好不要直通不支持Reset的设备，会导致虚拟机关机后宿主机无法使用该设备。检查方法参照前文，看看在设备的sysfs下有没有reset文件即可。&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;一般来说看着比较反常的控制器直通后挂掉的概率更大。&lt;br&gt;
+比如控制器：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code&gt;10:00.0 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 2.0 xHCI [1022:15b8]
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;只管了一个USB Bus9，一看还是USB 2.0，对应到主板上的物理接口是一个用于无CPU更新BIOS的接口。直通时只要带了这个控制器就会直接死掉。&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;一点题外话：&lt;br&gt;
+我这块主板使用的是辣鸡联发科MT7925的wireless &lt;del&gt;为啥你这“高端”主板还用这种B东西&lt;/del&gt;，它的网卡部分甚至和蓝牙是分开的。
+网卡部分走的是PCIe，问题不大，蓝牙则是通过USB连接的（上面的&amp;quot;IMC Networks Wireless_Device&amp;quot;）。前段时间装完机后这个蓝牙
+折腾大半天死活搞不定，启动时一看日志全是USB的各种IO Error，开机都要花个3分钟。&lt;/p&gt;
+&lt;p&gt;直到在Reddit上发现这一篇神人&lt;a class="link" href="https://www.reddit.com/r/archlinux/comments/zweejv/comment/lwlq8b5" target="_blank" rel="noopener"
+&gt;帖子&lt;/a&gt;。&lt;br&gt;
+简单来说就是联发科的💩蓝牙模块在固件更新完之后内部状态直接corrupted了，必须完全将电脑断电才能重置状态。&lt;br&gt;
+所以最后直接断电、重启就解决了😇&lt;/p&gt;
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="gpu-直通"&gt;GPU 直通
+&lt;/h2&gt;&lt;p&gt;哈，终于到了最令人享受的一步了🥵&lt;br&gt;
+如果你不是RX 7000系的GPU，那建议先看看对于其他一般GPU的直通指南，因为接下来的部分有几步会和一般步骤完全相反🙃&lt;/p&gt;
+&lt;h3 id="隔离-gpu"&gt;隔离 GPU
+&lt;/h3&gt;&lt;p&gt;&lt;strong&gt;⚠️注意：显卡隔离成功后宿主机不会再通过此显卡输出画面，请确保有第二张显卡或者ssh连接。&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;这一步的目的是让vfio-pci驱动在相应的设备驱动初始化设备之前绑定到设备上，使设备保持一个相对「干净」的状态。&lt;/p&gt;
+&lt;p&gt;这里使用在系统启动阶段提前加载vfio驱动的方式抢占设备，创建文件&lt;code&gt;/etc/modprobe.d/vfio.conf&lt;/code&gt;：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code&gt;softdep drm pre: vfio-pci
+softdep snd_hda_intel pre: vfio-pci
+options vfio-pci ids=1002:744c,1002:ab30
+options vfio-pci disable_idle_d3=1
+options vfio-pci disable_vga=1
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;先规定vfio-pci模块要在显卡驱动和声卡驱动前加载，然后通过&lt;code&gt;ids&lt;/code&gt;指定需要绑定的设备ID，这里指定的是显卡上的GPU和声卡，
+接下来通过禁用D3模式防止设备在reset的时候出现一些奇怪的问题，
+最后这个&lt;code&gt;disable_vga&lt;/code&gt;似乎可以防止设备被「VGA Arbitration」，但在我在似乎用处不大。&lt;/p&gt;
+&lt;p&gt;接下来配置在启动阶段强制加载vfio-pci驱动：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#75715e"&gt;# /etc/mkinitcpio.conf&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;MODULES&lt;span style="color:#f92672"&gt;=(&lt;/span&gt;vfio-pci vfio vfio_iommu_type1&lt;span style="color:#f92672"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;HOOKS&lt;span style="color:#f92672"&gt;=(&lt;/span&gt;... modconf ...&lt;span style="color:#f92672"&gt;)&lt;/span&gt; &lt;span style="color:#75715e"&gt;# HOOKS中要有modconf&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;所有此类更改都记得要重新&lt;code&gt;mkinitcpio&lt;/code&gt;。&lt;/p&gt;
+&lt;p&gt;虽然理论上来说应该也是可以像上面的USB Controller一样进行rebind的，但部分显卡被内核驱动初始化过之后说不定会遇到各种奇怪的reset bug，
+因此在内核驱动初始化设备之前抢占应该是最保险的方式。&lt;br&gt;
+有条件的可以尝试一下在UEFI中将启动显卡设置为核显，这样能避免UEFI对要直通的显卡进行初始化，从而&lt;del&gt;有几率&lt;/del&gt;让虚拟机的UEFI能够正常显示。&lt;/p&gt;
+&lt;h3 id="配置-qemu"&gt;配置 QEMU
+&lt;/h3&gt;&lt;p&gt;使用下面的配置将隔离出的GPU添加到虚拟机中：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-device vfio-pci,host&lt;span style="color:#f92672"&gt;=&lt;/span&gt;03:00.0,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;rp2,addr&lt;span style="color:#f92672"&gt;=&lt;/span&gt;00.0,multifunction&lt;span style="color:#f92672"&gt;=&lt;/span&gt;on,romfile&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;🤪&amp;#34;&lt;/span&gt; &lt;span style="color:#75715e"&gt;# 稍后揭晓&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-device vfio-pci,host&lt;span style="color:#f92672"&gt;=&lt;/span&gt;03:00.1,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;rp2,addr&lt;span style="color:#f92672"&gt;=&lt;/span&gt;00.1
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-device vfio-pci,host&lt;span style="color:#f92672"&gt;=&lt;/span&gt;03:00.2,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;rp2,addr&lt;span style="color:#f92672"&gt;=&lt;/span&gt;00.2
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-device vfio-pci,host&lt;span style="color:#f92672"&gt;=&lt;/span&gt;03:00.3,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;rp2,addr&lt;span style="color:#f92672"&gt;=&lt;/span&gt;00.3
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;直接将显卡连接到前面的Downstream Port上即可，这里最好使用&lt;code&gt;multifunction&lt;/code&gt;模拟真实机器将所有function放在同一个slot中。
+分开来放在不同的slots中可能会导致问题，见Hints。&lt;/p&gt;
+&lt;p&gt;然后是虚拟机的其他显示配置：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#75715e"&gt;# Display&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-vga none
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-nographic
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;以上是在实装时候的参数，必须要手动将默认的vga显卡关闭。在安装/测试时建议使用以下参数：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#75715e"&gt;# Display&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-vga std
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-display gtk
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;注意只有vga显卡是跟PCI直通显卡兼容的。&lt;/p&gt;
+&lt;p&gt;接下来还记得前面在配置CPU时的隐藏虚拟化选项吗？现在该它发挥作用了。&lt;br&gt;
+AMD的Windows驱动程序在检测到虚拟化环境时并不是像隔壁黄狗一样故意禁止你使用，而是会将直通的GPU当作是一块SR-IOV的vGPU。
+&lt;del&gt;隔壁想用这功能还得专门买驱动&lt;/del&gt; 然后只会为Windows提供一个虚拟的显示器，并不会产生物理输出，因此需要隐藏虚拟环境。&lt;/p&gt;
+&lt;p&gt;然后使用以下命令检查&lt;code&gt;memlock&lt;/code&gt;是否有限制：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;ulimit -Hl
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;如果结果不是&lt;code&gt;unlimited&lt;/code&gt;，会遇到错误：&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;failed to setup container for group 20: memory listener initialization failed: Region mem: vfio_container_dma_map&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;那么还需要修改以下文件来解除运行虚拟机的用户&lt;code&gt;memlock&lt;/code&gt;的限制：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code class="language-conf" data-lang="conf"&gt;# /etc/security/limits.conf
+windows - memlock unlimited
+&lt;/code&gt;&lt;/pre&gt;&lt;h3 id="vbios"&gt;VBIOS
+&lt;/h3&gt;&lt;p&gt;&lt;del&gt;&lt;em&gt;&lt;strong&gt;最精彩的部分&lt;/strong&gt;&lt;/em&gt;&lt;/del&gt;&lt;/p&gt;
+&lt;p&gt;大多数GPU都需要向虚拟机传递一个VBIOS以正常工作，尤其是用作启动显卡的GPU。&lt;/p&gt;
+&lt;p&gt;除了从TechPowerUp和GPU-Z获取VBIOS外，还可以在Linux上尝试以下方式：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;echo &lt;span style="color:#ae81ff"&gt;1&lt;/span&gt; | sudo tee /sys/bus/pci/devices/0000:03:00.0/rom
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;sudo cat /sys/bus/pci/devices/0000:03:00.0/rom &amp;gt; 7900xt.rom
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;echo &lt;span style="color:#ae81ff"&gt;0&lt;/span&gt; | sudo tee /sys/bus/pci/devices/0000:03:00.0/rom
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;以下2个文件分别是从TechPowerUp下载以及从sysfs提取的：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code&gt;252664.rom 7900xt.rom
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;让我们&lt;code&gt;file&lt;/code&gt;一下：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code&gt;252664.rom: data
+7900xt.rom: BIOS (ia32) ROM Ext. IBM comp. Video &amp;#34;IBMb\372\334&amp;#34; (113*512) jmp 0x5ffa; at 0x3a8 PCI AMD/ATI device=0x744c PRIOR, ProgIF=3
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;欸，这俩文件竟然不一样？既然下面那个能识别出文件类型，那VBIOS就一定是它吧🤓&lt;/p&gt;
+&lt;p&gt;那就把这个文件传给上面的Arch Linux客户机看看：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-device vfio-pci,host&lt;span style="color:#f92672"&gt;=&lt;/span&gt;03:00.0,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;rp2,addr&lt;span style="color:#f92672"&gt;=&lt;/span&gt;00.0,multifunction&lt;span style="color:#f92672"&gt;=&lt;/span&gt;on,romfile&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;7900xt.rom&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Oops&amp;hellip; 爆炸了：&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;qemu: warning: vfio_container_dma_map(0x56261b019040, 0x380810214000, 0x4000, 0x7fb876dc8000) = -14 (错误的地址)&lt;br&gt;
+0000:03:00.3: PCI peer-to-peer transactions on BARs are not supported.&lt;br&gt;
+qemu: vfio: Error: Failed to setup MSI fds: 无效的参数&lt;br&gt;
+qemu: vfio: Error: Failed to enable MSI&lt;br&gt;
+error: kvm run failed 错误的地址&lt;br&gt;
+RAX=ffffffff92ffa5a0 RBX=ffff8e9985802000 RCX=0000000000000000 RDX=ffffd0c381c976b0&lt;br&gt;
+RSI=ffffd0c3807a4034 RDI=ffff8e998581a828 RBP=0000000000000034 RSP=ffffd0c381c97660&lt;br&gt;
+R8 =0000000000000002 R9 =0000000000000000 R10=0000000000000040 R11=0000000000000001&lt;br&gt;
+R12=ffffd0c381c976b0 R13=ffff8e998581a828 R14=0000000000000000 R15=0000000000000000&lt;br&gt;
+RIP=ffffffff92ffa5af RFL=00000282 [&amp;ndash;S&amp;mdash;-] CPL=0 II=0 A20=1 SMM=0 HLT=0&lt;br&gt;
+ES =0000 0000000000000000 00000000 00000000&lt;br&gt;
+CS =0010 0000000000000000 ffffffff 00a09b00 DPL=0 CS64 [-RA]&lt;br&gt;
+SS =0018 0000000000000000 ffffffff 00c09300 DPL=0 DS [-WA]&lt;br&gt;
+DS =0000 0000000000000000 00000000 00000000&lt;br&gt;
+FS =0000 00007fb361cde880 00000000 00000000&lt;br&gt;
+GS =0000 ffff8ea04e749000 00000000 00000000&lt;br&gt;
+LDT=0000 0000000000000000 00000000 00000000&lt;br&gt;
+TR =0040 fffffe03e75ef000 00004087 00008b00 DPL=0 TSS64-busy&lt;br&gt;
+GDT= fffffe03e75ed000 0000007f&lt;br&gt;
+IDT= fffffe0000000000 00000fff&lt;br&gt;
+CR0=80050033 CR2=00007fb35fd8d2db CR3=000000011045b000 CR4=00750ef0&lt;br&gt;
+DR0=0000000000000000 DR1=0000000000000000 DR2=0000000000000000 DR3=0000000000000000 &lt;br&gt;
+DR6=00000000ffff0ff0 DR7=0000000000000400&lt;br&gt;
+EFER=0000000000200d01&lt;br&gt;
+Code=90 90 90 90 90 f3 0f 1e fa 0f 1f 44 00 00 89 f6 48 03 77 18 &amp;lt;8b&amp;gt; 06 89 02 31 c0 c3 cc cc cc cc 66 0f 1f 44 00 00 90 90 90 90 90 90 90 90 90 90 90 90 90&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;那重启一下再看看？&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;qemu-system-x86_64: ../qemu-10.1.2/hw/pci/pci.c:1815: pci_irq_handler: Assertion `0 &amp;lt;= irq_num &amp;amp;&amp;amp; irq_num &amp;lt; PCI_NUM_PINS&amp;rsquo; failed.&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;&amp;hellip;&amp;hellip;好的，恭喜你，现在显卡的状态已经彻底corrupted了🫨，只能重启宿主机。&lt;del&gt;联发科打过来了？&lt;/del&gt;&lt;/p&gt;
+&lt;p&gt;再试试从TechPowerUp下载的VBIOS呢？&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-device vfio-pci,host&lt;span style="color:#f92672"&gt;=&lt;/span&gt;03:00.0,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;rp2,addr&lt;span style="color:#f92672"&gt;=&lt;/span&gt;00.0,multifunction&lt;span style="color:#f92672"&gt;=&lt;/span&gt;on,romfile&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;252664.rom&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Hummm&amp;hellip; 看起来正常启动了，Linux也能够认到显卡，甚至Hyprland都能够正常启动并输出。&lt;br&gt;
+万事大吉了吗？Linux提取的固件有问题？&lt;br&gt;
+仔细看一下启动日志可以发现：&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;Dec 28 05:23:21 archlinux kernel: amdgpu 0000:00:04.0: Invalid PCI ROM header signature: expecting 0xaa55, got 0x0000&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;WTF？我们的VBIOS由于格式不正确压根就没有被加载！&lt;/p&gt;
+&lt;p&gt;🤔&amp;hellip; 那这究竟是怎么回事呢？&lt;br&gt;
+以下是我的个人理解，原文在&lt;a class="link" href="https://forum.level1techs.com/t/the-state-of-amd-rx-7000-series-vfio-passthrough-april-2024/210242" target="_blank" rel="noopener"
+&gt;这里&lt;/a&gt;。&lt;/p&gt;
+&lt;p&gt;由于显卡在启动时已经被宿主机的UEFI初始化了一次，如果再在虚拟机中被UEFI初始化一次会损坏其内部状态，导致显卡无法正常使用
+（但我更改了启动显卡似乎也没法解决）。
+因此防止显卡被UEFI再次初始化的方式就是提供一个错误的VBIOS或者关闭ROM BAR。&lt;br&gt;
+还记得在ArchWiki页面说一般Nvidia的VBIOS提取出来后需要去除文件头直至0xaa55为文件开头吗？
+如果我们使用&lt;code&gt;od&lt;/code&gt;查看上面的两个ROM文件应该能够发现从sysfs下提取的VBIOS确实是符合格式的，而下载的反而是格式错误的。
+进一步查看binary可以发现很多&lt;code&gt;7900xt.rom&lt;/code&gt;的片段都可以在&lt;code&gt;252664.rom&lt;/code&gt;中找到。实际上后者应该就是前者再加上&lt;code&gt;linux-firmware-amdgpu&lt;/code&gt;中的固件，
+但没有遵循VBIOS的标准格式，导致虚拟机无法使用VBIOS。这也和启动日志中的信息一致。&lt;/p&gt;
+&lt;p&gt;所以，其实只要故意提供一个错误的VBIOS就好了：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;dd &lt;span style="color:#66d9ef"&gt;if&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;/dev/zero of&lt;span style="color:#f92672"&gt;=&lt;/span&gt;dummy.rom bs&lt;span style="color:#f92672"&gt;=&lt;/span&gt;1M count&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;1&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;然后加载到QEMU：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;-device vfio-pci,host&lt;span style="color:#f92672"&gt;=&lt;/span&gt;03:00.0,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;rp2,addr&lt;span style="color:#f92672"&gt;=&lt;/span&gt;00.0,multifunction&lt;span style="color:#f92672"&gt;=&lt;/span&gt;on,romfile&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;dummy.rom&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;理论上应该不提供VBIOS或者用TechPowerUp的也可以，但据说这样更稳定。&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Hints:&lt;/strong&gt;&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;
+&lt;p&gt;上面显卡状态的corruption在经过测试后似乎只在以下两种情况复现：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;没有使用&lt;code&gt;modprobe.d&lt;/code&gt;将声卡在驱动&lt;code&gt;snd_hda_intel&lt;/code&gt;前绑定，且未启用PCIe的multifunction并使用从sysfs提取的VBIOS。&lt;/li&gt;
+&lt;li&gt;在内核启动参数中添加&lt;code&gt;video=vesafb:off video=efifb:off video=simplefb:off&lt;/code&gt;后使用从sysfs提取的VBIOS。&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;除了其余正常工作的情况外，剩下的表现就是Linux启动时会出现大量&lt;code&gt;DMCUB Error&lt;/code&gt;且没有显示信号输出。&lt;br&gt;
+在没有启用multifunction时，journal中会出现以下信息：&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;Dec 28 06:53:25 archlinux kernel: amdgpu 0000:00:05.0: amdgpu: System can&amp;rsquo;t access extended configuration space, please check!!&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;因此我的&lt;del&gt;瞎猜&lt;/del&gt;推测是：在没有启用multifunction时，显卡直接连接到了根总线上，导致被认为这是一个RCiEP的PCI设备，
+从而依赖传入的VBIOS对显卡进行重新初始化，然后就寄了。&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;如果显卡遇到了Reset Bug，可以看看项目&lt;a class="link" href="https://github.com/gnif/vendor-reset" target="_blank" rel="noopener"
+&gt;vendor-reset&lt;/a&gt;中是否有自己的显卡。&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;不少网上的指南都有说要在宿主机的BIOS中关闭Resizable BAR，但在我这套平台下开启也可以正常运行，如遇问题可以关闭。&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;看到有不少在参数中添加&lt;code&gt;x-vga=on&lt;/code&gt;的，但似乎这只是一个针对Nvidia GPU的fix，添加后会直接报错。&lt;/p&gt;
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="安全启动"&gt;安全启动
+&lt;/h2&gt;&lt;p&gt;对于那些并没有将微软证书enroll到NVRAM模板文件中的发行版，例如Arch Linux，需要使用以下步骤手动注册证书并开启secure boot。&lt;/p&gt;
+&lt;h3 id="生成-pk-platform-key"&gt;生成 PK (Platform Key)
+&lt;/h3&gt;&lt;p&gt;先使用&lt;code&gt;openssl&lt;/code&gt;生成一对密钥：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;openssl req -newkey rsa:4096 -nodes -keyout private.key -x509 -days &lt;span style="color:#ae81ff"&gt;3650&lt;/span&gt; -out pk.crt
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;本地使用，DN字段随便填写即可。其中private.key为私钥，pk.crt为公钥。&lt;/p&gt;
+&lt;p&gt;然后将PEM证书转换为DER证书：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;openssl x509 -in pk.crt -outform der -out pk.der
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;生成的pk.der就是可以被enroll的证书。&lt;/p&gt;
+&lt;h3 id="获取-microsoft-证书"&gt;获取 Microsoft 证书
+&lt;/h3&gt;&lt;p&gt;KEK (Key Exchange Key): &lt;a class="link" href="https://go.microsoft.com/fwlink/p/?linkid=321185" target="_blank" rel="noopener"
+&gt;Microsoft Corporation KEK CA 2011&lt;/a&gt;&lt;br&gt;
+DB (Allowed Signature database): &lt;a class="link" href="https://go.microsoft.com/fwlink/?LinkId=321192" target="_blank" rel="noopener"
+&gt;Microsoft Windows Production CA 2011&lt;/a&gt;,
+&lt;a class="link" href="https://go.microsoft.com/fwlink/p/?LinkID=321194" target="_blank" rel="noopener"
+&gt;Microsoft Corporation UEFI CA 2011&lt;/a&gt;&lt;/p&gt;
+&lt;h3 id="注册证书并启用安全启动"&gt;注册证书并启用安全启动
+&lt;/h3&gt;&lt;p&gt;现在你应该有下面这些文件：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code&gt;MicCorKEKCA2011_2011-06-24.crt MicCorUEFCA2011_2011-06-27.crt MicWinProPCA2011_2011-10-19.crt
+pk.crt nvram.fd
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;然后使用以下命令将证书写入NVRAM：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;MS_GUID&lt;span style="color:#f92672"&gt;=&lt;/span&gt;77fa9abd-0359-4d32-bd60-28f4e78f784b &lt;span style="color:#ae81ff"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; virt-fw-vars &lt;span style="color:#ae81ff"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -i nvram.fd -o nvram_sec.fd &lt;span style="color:#ae81ff"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; --set-pk &lt;span style="color:#66d9ef"&gt;$(&lt;/span&gt;uuidgen&lt;span style="color:#66d9ef"&gt;)&lt;/span&gt; pk.der &lt;span style="color:#ae81ff"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; --add-kek &lt;span style="color:#66d9ef"&gt;$(&lt;/span&gt;MS_GUID&lt;span style="color:#66d9ef"&gt;)&lt;/span&gt; MicCorKEKCA2011_2011-06-24.crt &lt;span style="color:#ae81ff"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; --add-db &lt;span style="color:#66d9ef"&gt;$(&lt;/span&gt;MS_GUID&lt;span style="color:#66d9ef"&gt;)&lt;/span&gt; MicCorUEFCA2011_2011-06-27.crt &lt;span style="color:#ae81ff"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; --add-db &lt;span style="color:#66d9ef"&gt;$(&lt;/span&gt;MS_GUID&lt;span style="color:#66d9ef"&gt;)&lt;/span&gt; MicWinProPCA2011_2011-10-19.crt &lt;span style="color:#ae81ff"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; --sb
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;将输出的&lt;code&gt;nvram_sec.fd&lt;/code&gt;用作NVRAM启动客户机，安全启动应该能正常开启。&lt;/p&gt;
+&lt;h2 id="配置目标系统"&gt;配置目标系统
+&lt;/h2&gt;&lt;p&gt;接下来就是将安装调试好的虚拟机部署到目标系统上。&lt;br&gt;
+虚拟机进程将以非特权用户在目标机器上运行，并能够实现宿主机启动自动运行，客户机正常关闭时宿主机自动关机。
+这里使用systemd的user units来实现，请根据自己的需求进行调整。&lt;/p&gt;
+&lt;p&gt;先看看最小目标系统需要哪些软件包：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;sudo pacstrap -K /mnt base linux &lt;span style="color:#ae81ff"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; amd-ucode linux-firmware-amdgpu linux-firmware-mediatek &lt;span style="color:#ae81ff"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; lvm2 btrfs-progs qemu-img &lt;span style="color:#ae81ff"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; networkmanager dnsmasq openssh &lt;span style="color:#ae81ff"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; qemu-system-x86 swtpm usbutils &lt;span style="color:#ae81ff"&gt;\
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; vim less bash-completion terminus-font sudo
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;然后将文件部署到运行虚拟机的&lt;code&gt;windows&lt;/code&gt;用户的家目录下：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code&gt;.
+├── firmware
+│   ├── dummy.rom
+│   ├── nvram.fd
+│   └── tpm2-00.permall
+├── qemu.sh
+└── storage
+├── rootfs.qcow2
+├── virtio-win.iso
+└── Windows10-21H2-LTSC-IoT.iso
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;其中&lt;code&gt;tpm2-00.permall&lt;/code&gt;会由swtpm自动创建。&lt;br&gt;
+新系统需要的基本配置文件以及前面提及的用于VFIO直通的各种配置文件不再赘述，下面主要说明新增的文件。&lt;/p&gt;
+&lt;h3 id="udev-rules"&gt;Udev Rules
+&lt;/h3&gt;&lt;p&gt;由于虚拟机进程是以非特权用户身份运行的，因此需要使用udev改变一些设备文件的权限：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#75715e"&gt;# /etc/udev/rules.d/99-qemu.rules&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;SUBSYSTEM&lt;span style="color:#f92672"&gt;==&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;vfio&amp;#34;&lt;/span&gt;, OWNER&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;qemu&amp;#34;&lt;/span&gt;, GROUP&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;qemu&amp;#34;&lt;/span&gt;, MODE&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;0660&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;SUBSYSTEM&lt;span style="color:#f92672"&gt;==&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;block&amp;#34;&lt;/span&gt;, ENV&lt;span style="color:#f92672"&gt;{&lt;/span&gt;DM_NAME&lt;span style="color:#f92672"&gt;}==&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;Data-windows&amp;#34;&lt;/span&gt;, OWNER&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;qemu&amp;#34;&lt;/span&gt;, GROUP&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;qemu&amp;#34;&lt;/span&gt;, MODE&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;0660&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;由于udev不允许设备文件的所有者为非系统用户，因此将owner和group改为qemu，让非特权用户加入这个组就行。&lt;/p&gt;
+&lt;h3 id="dynamic-rebindservice"&gt;dynamic-rebind.service
+&lt;/h3&gt;&lt;p&gt;前面在调试虚拟机的时候是手动对设备进行rebind的，这里使用systemd service使其能够实现开机自动rebind。&lt;/p&gt;
+&lt;p&gt;那你可能就要问了，为什么不像rebind GPU时一样使用/etc/modprobe.d来提前加载vfio驱动？&lt;br&gt;
+这个因不同内核而异。能够先于设备驱动模块提前加载VFIO的前提是得有设备驱动模块🤪&lt;br&gt;
+你可以使用这条命令来验证一下：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;zgrep -e DESIGNWARE_PCI -e XHCI_HCD /proc/config.gz
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;如果你的输出是像下面这样的两个y：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code&gt;CONFIG_I2C_DESIGNWARE_PCI=y
+CONFIG_USB_XHCI_HCD=y
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;那么恭喜你，你只能进行dynamic rebind。&lt;br&gt;
+原理很简单：内核模块的加载是在内核初始化完成后由systemd进行的。但内核在初始化过程中就会初始化设备并绑定驱动，
+如果某个设备驱动不是模块的话，其在systemd之前就已经被绑定了。&lt;/p&gt;
+&lt;p&gt;使用下面的systemd service进行rebind：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-ini" data-lang="ini"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#75715e"&gt;# /etc/systemd/system/dynamic-rebind.service&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#66d9ef"&gt;[Unit]&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;Description&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;Rebind USB Controller and I2C Bus to vfio&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;DefaultDependencies&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;no&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;Before&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;systemd-udevd.service&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;After&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;systemd-modules-load.service&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#66d9ef"&gt;[Service]&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;Type&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;oneshot&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#75715e"&gt;# USB Controller&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;ExecStart&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;/usr/bin/bash -c &amp;#39;echo &amp;#34;0000:0c:00.0&amp;#34; &amp;gt; /sys/bus/pci/drivers/xhci_hcd/unbind&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;ExecStart&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;/usr/bin/bash -c &amp;#39;echo &amp;#34;0000:0f:00.3&amp;#34; &amp;gt; /sys/bus/pci/drivers/xhci_hcd/unbind&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;ExecStart&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;/usr/bin/bash -c &amp;#39;echo &amp;#34;1022 43fc&amp;#34; &amp;gt; /sys/bus/pci/drivers/vfio-pci/new_id&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;ExecStart&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;/usr/bin/bash -c &amp;#39;echo &amp;#34;1022 15b6&amp;#34; &amp;gt; /sys/bus/pci/drivers/vfio-pci/new_id&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#75715e"&gt;# RX 7900XT&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;ExecStart&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;/usr/bin/bash -c &amp;#39;echo &amp;#34;0000:03:00.2&amp;#34; &amp;gt; /sys/bus/pci/drivers/xhci_hcd/unbind&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;ExecStart&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;/usr/bin/bash -c &amp;#39;echo &amp;#34;0000:03:00.3&amp;#34; &amp;gt; /sys/bus/pci/drivers/i2c-designware-pci/unbind&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;ExecStart&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;/usr/bin/bash -c &amp;#39;echo &amp;#34;1002 7446&amp;#34; &amp;gt; /sys/bus/pci/drivers/vfio-pci/new_id&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;ExecStart&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;/usr/bin/bash -c &amp;#39;echo &amp;#34;1002 7444&amp;#34; &amp;gt; /sys/bus/pci/drivers/vfio-pci/new_id&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;RemainAfterExit&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;yes&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;Restart&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;no&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#66d9ef"&gt;[Install]&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;WantedBy&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;sysinit.target&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;值得注意的是这个service的执行时机应该尽可能早，最好在udevd开始之前就执行完成，否则会和udevd发生racing，导致journal里一堆error。&lt;br&gt;
+还有就是systemd的命令行不支持shell的&lt;code&gt;| &amp;gt; &amp;gt;&amp;gt;&lt;/code&gt;等运算符，需要像这样使用&lt;code&gt;sh -c&lt;/code&gt;的方式实现。&lt;/p&gt;
+&lt;h3 id="swtpmservice"&gt;swtpm.service
+&lt;/h3&gt;&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-ini" data-lang="ini"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#75715e"&gt;# /home/windows/.config/systemd/user/swtpm.service&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#66d9ef"&gt;[Unit]&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;Description&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;TPM2 Emulator for QEMU&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;After&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;multi-user.target&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#66d9ef"&gt;[Service]&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;Type&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;simple&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;ExecStart&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;/usr/bin/swtpm socket --tpm2 --tpmstate dir=&amp;#34;${HOME}/firmware&amp;#34; --ctrl type=unixio,path=&amp;#34;${XDG_RUNTIME_DIR}/tpm_sock&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;Restart&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;on-abnormal&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#66d9ef"&gt;[Install]&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;WantedBy&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;default.target&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;不需要加入&lt;code&gt;--terminate&lt;/code&gt;参数，以便于qemu重启时能够再次连接。&lt;/p&gt;
+&lt;h3 id="windowsservice"&gt;windows.service
+&lt;/h3&gt;&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-ini" data-lang="ini"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#75715e"&gt;# /home/windows/.config/systemd/user/windows.service&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#66d9ef"&gt;[Unit]&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;Description&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;A QEMU service runs the Windows virtual machine&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;Requires&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;swtpm.service&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;After&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;swtpm.service&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#66d9ef"&gt;[Service]&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;Type&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;simple&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;ExecStartPre&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;/usr/bin/echo &amp;#39;Note: Touch a file named /tmp/no-shutdown to prevent auto shutdown&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;ExecStart&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;%h/qemu.sh&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;ExecStopPost&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;/usr/bin/bash -c &amp;#39;if [ &amp;#34;$SERVICE_RESULT&amp;#34; = &amp;#34;success&amp;#34; ] &amp;amp;&amp;amp; [ ! -f /tmp/no-shutdown ]; then systemctl poweroff --no-ask-password; else echo &amp;#34;VM crashed or /tmp/no-shutdown detected, skipping poweroff&amp;#34;; fi&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;Restart&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;on-abnormal&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#66d9ef"&gt;[Install]&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;WantedBy&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;default.target&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;这里使用判断exit code的方式决定QEMU是否正常退出，再结合&lt;code&gt;/tmp/no-shutdown&lt;/code&gt; file flag来确定是否关机。最后请确保&lt;code&gt;qemu.sh&lt;/code&gt;有执行权限。&lt;/p&gt;
+&lt;h3 id="polkit-rules"&gt;Polkit Rules
+&lt;/h3&gt;&lt;p&gt;如果你现在直接尝试上面的windows.service那大概率是没法自动关机的，会被Access Denied。&lt;br&gt;
+平时在console的local user能直接&lt;code&gt;poweroff&lt;/code&gt;关机应该是polkit开了洞。现在如果在service里试图关机，由于不是一个interactive环境，
+请求会被polkit直接拒绝。因此就像Udev Rules一样，我们也需要编写Polkit Rules来执行特权动作。&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-javascript" data-lang="javascript"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#75715e"&gt;// /etc/polkit-1/rules.d/10-qemu-shutdown.rules
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#a6e22e"&gt;polkit&lt;/span&gt;.&lt;span style="color:#a6e22e"&gt;addRule&lt;/span&gt;(&lt;span style="color:#66d9ef"&gt;function&lt;/span&gt;(&lt;span style="color:#a6e22e"&gt;action&lt;/span&gt;, &lt;span style="color:#a6e22e"&gt;subject&lt;/span&gt;) {
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#66d9ef"&gt;if&lt;/span&gt; (&lt;span style="color:#a6e22e"&gt;action&lt;/span&gt;.&lt;span style="color:#a6e22e"&gt;id&lt;/span&gt; &lt;span style="color:#f92672"&gt;===&lt;/span&gt; &lt;span style="color:#e6db74"&gt;&amp;#34;org.freedesktop.login1.power-off&amp;#34;&lt;/span&gt; &lt;span style="color:#f92672"&gt;&amp;amp;&amp;amp;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#a6e22e"&gt;subject&lt;/span&gt;.&lt;span style="color:#a6e22e"&gt;user&lt;/span&gt; &lt;span style="color:#f92672"&gt;===&lt;/span&gt; &lt;span style="color:#e6db74"&gt;&amp;#34;windows&amp;#34;&lt;/span&gt;) {
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#66d9ef"&gt;return&lt;/span&gt; &lt;span style="color:#a6e22e"&gt;polkit&lt;/span&gt;.&lt;span style="color:#a6e22e"&gt;Result&lt;/span&gt;.&lt;span style="color:#a6e22e"&gt;YES&lt;/span&gt;;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; }
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;});
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h3 id="启用服务"&gt;启用服务
+&lt;/h3&gt;&lt;p&gt;然后启用所有必要的服务：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#75715e"&gt;# System services&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;sudo systemctl enable sshd
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;sudo systemctl enable nftables
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;sudo systemctl enable Networkmanager
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;sudo systemctl enable systemd-resolved
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;sudo systemctl enable dynamic-rebind.service
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#75715e"&gt;# User services&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;systemctl --user enable swtpm.service
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;systemctl --user enable windows.service
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;最后，启动lingering：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;loginctl enable-linger
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Lingering能够让用户的service和session分离，使得能够实现开机自启，session结束服务继续运行的功能。&lt;/p&gt;
+&lt;p&gt;最后附&lt;code&gt;qemu.sh&lt;/code&gt;：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#75715e"&gt;#! /usr/bin/env bash
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#66d9ef"&gt;if&lt;/span&gt; &lt;span style="color:#f92672"&gt;[&lt;/span&gt; &lt;span style="color:#e6db74"&gt;&amp;#34;&lt;/span&gt;$UID&lt;span style="color:#e6db74"&gt;&amp;#34;&lt;/span&gt; -eq &lt;span style="color:#ae81ff"&gt;0&lt;/span&gt; &lt;span style="color:#f92672"&gt;]&lt;/span&gt;; &lt;span style="color:#66d9ef"&gt;then&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; echo &lt;span style="color:#e6db74"&gt;&amp;#34;The script should not be run as root&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; exit &lt;span style="color:#ae81ff"&gt;1&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#66d9ef"&gt;fi&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#75715e"&gt;# Hyper-V Enlightenments&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;hyperv_opts&lt;span style="color:#f92672"&gt;=(&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_relaxed
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_vapic
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_spinlocks&lt;span style="color:#f92672"&gt;=&lt;/span&gt;0xfff
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_vpindex
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_synic
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_time
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_stimer
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_tlbflush
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_tlbflush_ext
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_ipi
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_stimer_direct
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_runtime
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_frequencies
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_reenlightenment
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_avic
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_xmm_input
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; hv_vendor_id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;0123456789ab
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#f92672"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;hyperv_opts_str&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#66d9ef"&gt;$(&lt;/span&gt;IFS&lt;span style="color:#f92672"&gt;=&lt;/span&gt;,; echo &lt;span style="color:#e6db74"&gt;&amp;#34;&lt;/span&gt;&lt;span style="color:#e6db74"&gt;${&lt;/span&gt;hyperv_opts[*]&lt;span style="color:#e6db74"&gt;}&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;&lt;/span&gt;&lt;span style="color:#66d9ef"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#75715e"&gt;# QEMU Args&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;qemu_args&lt;span style="color:#f92672"&gt;=(&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#75715e"&gt;## Machine&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -name windows
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -machine q35,vmport&lt;span style="color:#f92672"&gt;=&lt;/span&gt;off,smm&lt;span style="color:#f92672"&gt;=&lt;/span&gt;on
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -accel kvm
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#75715e"&gt;## SMP &lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -cpu &lt;span style="color:#e6db74"&gt;&amp;#34;host,kvm=off,topoext=on,svm=on,hypervisor=on,&lt;/span&gt;&lt;span style="color:#e6db74"&gt;${&lt;/span&gt;hyperv_opts_str&lt;span style="color:#e6db74"&gt;}&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -smp 23,sockets&lt;span style="color:#f92672"&gt;=&lt;/span&gt;1,cores&lt;span style="color:#f92672"&gt;=&lt;/span&gt;23,threads&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;1&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -m 29G
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#75715e"&gt;## Firmware&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -drive &lt;span style="color:#66d9ef"&gt;if&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;pflash,format&lt;span style="color:#f92672"&gt;=&lt;/span&gt;raw,readonly&lt;span style="color:#f92672"&gt;=&lt;/span&gt;on,file&lt;span style="color:#f92672"&gt;=&lt;/span&gt;/usr/share/edk2/x64/OVMF_CODE.secboot.4m.fd
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -drive &lt;span style="color:#66d9ef"&gt;if&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;pflash,format&lt;span style="color:#f92672"&gt;=&lt;/span&gt;raw,file&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;&lt;/span&gt;$HOME&lt;span style="color:#e6db74"&gt;/firmware/nvram.fd&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -fw_cfg name&lt;span style="color:#f92672"&gt;=&lt;/span&gt;opt/ovmf/X-PciMmio64Mb,string&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;65536&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -global ICH9-LPC.disable_s3&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;1&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -global ICH9-LPC.disable_s4&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;1&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -boot menu&lt;span style="color:#f92672"&gt;=&lt;/span&gt;on,strict&lt;span style="color:#f92672"&gt;=&lt;/span&gt;on,reboot-timeout&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;2000&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -rtc base&lt;span style="color:#f92672"&gt;=&lt;/span&gt;localtime
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#75715e"&gt;## TPM2&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -chardev socket,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;ch0,path&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;&lt;/span&gt;$XDG_RUNTIME_DIR&lt;span style="color:#e6db74"&gt;/tpm_sock&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -tpmdev emulator,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;tpm0,chardev&lt;span style="color:#f92672"&gt;=&lt;/span&gt;ch0
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -device tpm-tis,tpmdev&lt;span style="color:#f92672"&gt;=&lt;/span&gt;tpm0
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#75715e"&gt;## PCIe Topology&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -device pcie-root-port,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;rp0,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;pcie.0,slot&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;1&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -device x3130-upstream,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swu0,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;rp0
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -device xio3130-downstream,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swd0,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swu0,slot&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;4&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -device xio3130-downstream,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swd1,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swu0,slot&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;5&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -device xio3130-downstream,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swd2,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swu0,slot&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;6&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -device pcie-root-port,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;rp1,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;pcie.0,slot&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;2&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -device x3130-upstream,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swu1,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;rp1
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -device xio3130-downstream,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swd3,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swu1,slot&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;7&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -device xio3130-downstream,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swd4,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swu1,slot&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;8&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -device pcie-root-port,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;rp2,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;pcie.0,slot&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;3&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#75715e"&gt;## Network&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -netdev bridge,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;net0,br&lt;span style="color:#f92672"&gt;=&lt;/span&gt;virbr0
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -device virtio-net-pci,netdev&lt;span style="color:#f92672"&gt;=&lt;/span&gt;net0,mac&lt;span style="color:#f92672"&gt;=&lt;/span&gt;52:54:5c:fb:52:2a,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swd0
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#75715e"&gt;## Storage&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -drive &lt;span style="color:#66d9ef"&gt;if&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;none,media&lt;span style="color:#f92672"&gt;=&lt;/span&gt;cdrom,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;cd0,file&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;&lt;/span&gt;$HOME&lt;span style="color:#e6db74"&gt;/storage/Windows10-21H2-LTSC-IoT.iso&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -drive &lt;span style="color:#66d9ef"&gt;if&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;none,media&lt;span style="color:#f92672"&gt;=&lt;/span&gt;cdrom,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;cd1,file&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;&lt;/span&gt;$HOME&lt;span style="color:#e6db74"&gt;/storage/virtio-win.iso&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -drive &lt;span style="color:#66d9ef"&gt;if&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;none,format&lt;span style="color:#f92672"&gt;=&lt;/span&gt;qcow2,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;disk0,file&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;&lt;/span&gt;$HOME&lt;span style="color:#e6db74"&gt;/storage/rootfs.qcow2&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -drive &lt;span style="color:#66d9ef"&gt;if&lt;/span&gt;&lt;span style="color:#f92672"&gt;=&lt;/span&gt;none,format&lt;span style="color:#f92672"&gt;=&lt;/span&gt;raw,id&lt;span style="color:#f92672"&gt;=&lt;/span&gt;disk1,file&lt;span style="color:#f92672"&gt;=&lt;/span&gt;/dev/Data/windows
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -device ide-cd,drive&lt;span style="color:#f92672"&gt;=&lt;/span&gt;cd0,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;ide.0,bootindex&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;1&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -device ide-cd,drive&lt;span style="color:#f92672"&gt;=&lt;/span&gt;cd1,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;ide.1
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -device virtio-blk-pci,drive&lt;span style="color:#f92672"&gt;=&lt;/span&gt;disk0,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swd1,bootindex&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#ae81ff"&gt;0&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -device virtio-blk-pci,drive&lt;span style="color:#f92672"&gt;=&lt;/span&gt;disk1,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swd2
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#75715e"&gt;## PCI Passthrough&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -device vfio-pci,host&lt;span style="color:#f92672"&gt;=&lt;/span&gt;0c:00.0,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swd3 &lt;span style="color:#75715e"&gt;# USB Controller&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -device vfio-pci,host&lt;span style="color:#f92672"&gt;=&lt;/span&gt;0f:00.3,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;swd4
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -device vfio-pci,host&lt;span style="color:#f92672"&gt;=&lt;/span&gt;03:00.0,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;rp2,addr&lt;span style="color:#f92672"&gt;=&lt;/span&gt;00.0,multifunction&lt;span style="color:#f92672"&gt;=&lt;/span&gt;on,romfile&lt;span style="color:#f92672"&gt;=&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;&lt;/span&gt;$HOME&lt;span style="color:#e6db74"&gt;/firmware/dummy.rom&amp;#34;&lt;/span&gt; &lt;span style="color:#75715e"&gt;# GPU&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -device vfio-pci,host&lt;span style="color:#f92672"&gt;=&lt;/span&gt;03:00.1,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;rp2,addr&lt;span style="color:#f92672"&gt;=&lt;/span&gt;00.1
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -device vfio-pci,host&lt;span style="color:#f92672"&gt;=&lt;/span&gt;03:00.2,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;rp2,addr&lt;span style="color:#f92672"&gt;=&lt;/span&gt;00.2
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -device vfio-pci,host&lt;span style="color:#f92672"&gt;=&lt;/span&gt;03:00.3,bus&lt;span style="color:#f92672"&gt;=&lt;/span&gt;rp2,addr&lt;span style="color:#f92672"&gt;=&lt;/span&gt;00.3
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#75715e"&gt;## Display&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -vga none
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; -nographic
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#f92672"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;&lt;span style="color:#75715e"&gt;# Run Guest Windows VM&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;exec qemu-system-x86_64 &lt;span style="color:#e6db74"&gt;&amp;#34;&lt;/span&gt;&lt;span style="color:#e6db74"&gt;${&lt;/span&gt;qemu_args[@]&lt;span style="color:#e6db74"&gt;}&lt;/span&gt;&lt;span style="color:#e6db74"&gt;&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h2 id="效果展示"&gt;效果展示
+&lt;/h2&gt;&lt;p&gt;&lt;img src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/img/result-01.webp"
+width="2560"
+height="1440"
+loading="lazy"
+alt="GPU-Z"
+class="gallery-image"
+data-flex-grow="177"
+data-flex-basis="426px"
+&gt;
+GPU-Z检测显卡PCIe的逻辑非常神秘，开机后第一次启动显示PCIe 4.0 x16，过了几秒变成PCIe，关了再开就退化成PCI了😅&lt;br&gt;
+但AMD驱动以及Windows的设备管理器显示的都是4.0 x16，使用AIDA64测了一下带宽也有23GiB/s。&lt;/p&gt;
+&lt;p&gt;&lt;img src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/img/result-02.webp"
+width="2560"
+height="1440"
+loading="lazy"
+alt="Horizon-01"
+class="gallery-image"
+data-flex-grow="177"
+data-flex-basis="426px"
+&gt;
+&lt;img src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/img/result-03.webp"
+width="2560"
+height="1440"
+loading="lazy"
+alt="Horizon-02"
+class="gallery-image"
+data-flex-grow="177"
+data-flex-basis="426px"
+&gt;&lt;/p&gt;
+&lt;h2 id="reference"&gt;Reference
+&lt;/h2&gt;&lt;ul&gt;
+&lt;li&gt;&lt;a class="link" href="https://pve.sqlsec.com/4/2/#iommu-sr-iov" target="_blank" rel="noopener"
+&gt;硬件直通&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a class="link" href="https://wiki.archlinux.org/title/Systemd/User" target="_blank" rel="noopener"
+&gt;systemd/User&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a class="link" href="https://github.com/qemu/qemu/blob/master/docs/pcie.txt" target="_blank" rel="noopener"
+&gt;QEMU Docs: PCIe&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a class="link" href="https://undus.net/posts/qemu-kvm-win11-guest" target="_blank" rel="noopener"
+&gt;QEMU/KVM: Windows 11 Guest&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a class="link" href="https://wiki.archlinux.org/title/PCI_passthrough_via_OVMF" target="_blank" rel="noopener"
+&gt;PCI passthrough via OVMF&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a class="link" href="https://projectacrn.github.io/latest/tutorials/waag-secure-boot.html" target="_blank" rel="noopener"
+&gt;Enable Secure Boot in Windows&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a class="link" href="https://bbs.archlinux.org/viewtopic.php?id=288756" target="_blank" rel="noopener"
+&gt;No Output From 7900XTX GPU via OVMF PCI Passthrough&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a class="link" href="https://forum.level1techs.com/t/increasing-vfio-vga-performance/133443" target="_blank" rel="noopener"
+&gt;Increasing VFIO VGA Performance&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a class="link" href="https://forum.proxmox.com/threads/amd-7900-xt-or-xtx-pci-passthrough.121566/post-528609" target="_blank" rel="noopener"
+&gt;AMD 7900 XT or XTX pci passthrough&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a class="link" href="https://forum.level1techs.com/t/the-state-of-amd-rx-7000-series-vfio-passthrough-april-2024/210242" target="_blank" rel="noopener"
+&gt;The state of AMD RX 7000 Series VFIO Passthrough&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a class="link" href="https://docs.redhat.com/en/documentation/red_hat_virtualization/4.1/html/installation_guide/appe-configuring_a_hypervisor_host_for_pci_passthrough" target="_blank" rel="noopener"
+&gt;Appendix G. Configuring a Host for PCI Passthrough&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;</description></item></channel></rss>
