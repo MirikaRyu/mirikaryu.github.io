@@ -1,4 +1,4 @@
-<!doctype html><html lang=zh-cn dir=ltr><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><meta name=description content="前言 由于小时候不懂事在沟槽的Microsoft Store上买了个Horizon 4，以及Linux(Wayland)上一直缺乏一个好用的Office软件， 一直想搭建一个体验如同真机的Windows虚拟机，即开机接管所有外围设备并直接进入Windows，关机也会将整台电脑一起关闭。\n你说为什么不Dual Boot🧐？\nHummm&mldr; 答案是现在应该（大概？）没有人能够将Windows直接安装在一个LVM的logic volume上吧：\n"><title>QEMU/VFIO: Windows Guest 折腾记录</title><link rel=canonical href=https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/><link rel=stylesheet href=/scss/style.min.df36926c8a0dbd8bdd77f0a3f5986510dcc901b63c1169b0dc0b87b40b19ec52.css><meta property='og:title' content="QEMU/VFIO: Windows Guest 折腾记录"><meta property='og:description' content="前言 由于小时候不懂事在沟槽的Microsoft Store上买了个Horizon 4，以及Linux(Wayland)上一直缺乏一个好用的Office软件， 一直想搭建一个体验如同真机的Windows虚拟机，即开机接管所有外围设备并直接进入Windows，关机也会将整台电脑一起关闭。\n你说为什么不Dual Boot🧐？\nHummm&mldr; 答案是现在应该（大概？）没有人能够将Windows直接安装在一个LVM的logic volume上吧：\n"><meta property='og:url' content='https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/'><meta property='og:site_name' content="Mirika's Blog"><meta property='og:type' content='article'><meta property='article:section' content='Post'><meta property='article:tag' content='Linux'><meta property='article:tag' content='QEMU'><meta property='article:tag' content='Windows'><meta property='article:tag' content='VFIO'><meta property='article:tag' content='PCIe'><meta property='article:published_time' content='2025-12-31T18:25:01+08:00'><meta property='article:modified_time' content='2025-12-31T18:25:01+08:00'><meta property='og:image' content='https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/cover.webp'><meta name=twitter:title content="QEMU/VFIO: Windows Guest 折腾记录"><meta name=twitter:description content="前言 由于小时候不懂事在沟槽的Microsoft Store上买了个Horizon 4，以及Linux(Wayland)上一直缺乏一个好用的Office软件， 一直想搭建一个体验如同真机的Windows虚拟机，即开机接管所有外围设备并直接进入Windows，关机也会将整台电脑一起关闭。\n你说为什么不Dual Boot🧐？\nHummm&mldr; 答案是现在应该（大概？）没有人能够将Windows直接安装在一个LVM的logic volume上吧：\n"><meta name=twitter:card content="summary_large_image"><meta name=twitter:image content='https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/cover.webp'><link rel="shortcut icon" href=/favicon.svg></head><body class=article-page><script>(function(){const e="StackColorScheme";localStorage.getItem(e)||localStorage.setItem(e,"auto")})()</script><script>(function(){const t="StackColorScheme",e=localStorage.getItem(t),n=window.matchMedia("(prefers-color-scheme: dark)").matches===!0;e=="dark"||e==="auto"&&n?document.documentElement.dataset.scheme="dark":document.documentElement.dataset.scheme="light"})()</script><div class="container main-container flex on-phone--column extended"><aside class="sidebar left-sidebar sticky"><button class="hamburger hamburger--spin" type=button id=toggle-menu aria-label=切换菜单>
+<!doctype html><html lang=zh-cn dir=ltr><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><meta name=description content="前言 由于小时候不懂事在沟槽的Microsoft Store上买了个Horizon 4，以及Linux(Wayland)上一直缺乏一个好用的Office软件， 一直想搭建一个体验如同真机的Windows虚拟机，即开机接管所有外围设备并直接进入Windows，关机也会将整台电脑一起关闭。\n你说为什么不Dual Boot🧐？\nHummm&mldr; 答案是现在应该（大概？）没有人能够将Windows直接安装在一个LVM的logic volume上吧：\n"><title>QEMU/VFIO: Windows Guest 折腾记录</title><link rel=canonical href=https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/><link rel=stylesheet href=/scss/style.min.1c383e9df25f91c6cf1e793d4e402df761b071f012a79fbdd2101f4c13086f13.css><meta property='og:title' content="QEMU/VFIO: Windows Guest 折腾记录"><meta property='og:description' content="前言 由于小时候不懂事在沟槽的Microsoft Store上买了个Horizon 4，以及Linux(Wayland)上一直缺乏一个好用的Office软件， 一直想搭建一个体验如同真机的Windows虚拟机，即开机接管所有外围设备并直接进入Windows，关机也会将整台电脑一起关闭。\n你说为什么不Dual Boot🧐？\nHummm&mldr; 答案是现在应该（大概？）没有人能够将Windows直接安装在一个LVM的logic volume上吧：\n"><meta property='og:url' content='https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/'><meta property='og:site_name' content="Mirika's Blog"><meta property='og:type' content='article'><meta property='article:section' content='Post'><meta property='article:tag' content='Linux'><meta property='article:tag' content='QEMU'><meta property='article:tag' content='Windows'><meta property='article:tag' content='VFIO'><meta property='article:tag' content='PCIe'><meta property='article:published_time' content='2025-12-31T18:25:01+08:00'><meta property='article:modified_time' content='2025-12-31T18:25:01+08:00'><meta property='og:image' content='https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/cover.webp'><meta name=twitter:title content="QEMU/VFIO: Windows Guest 折腾记录"><meta name=twitter:description content="前言 由于小时候不懂事在沟槽的Microsoft Store上买了个Horizon 4，以及Linux(Wayland)上一直缺乏一个好用的Office软件， 一直想搭建一个体验如同真机的Windows虚拟机，即开机接管所有外围设备并直接进入Windows，关机也会将整台电脑一起关闭。\n你说为什么不Dual Boot🧐？\nHummm&mldr; 答案是现在应该（大概？）没有人能够将Windows直接安装在一个LVM的logic volume上吧：\n"><meta name=twitter:card content="summary_large_image"><meta name=twitter:image content='https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/cover.webp'><link rel="shortcut icon" href=/favicon.svg></head><body class=article-page><script>(function(){const e="StackColorScheme";localStorage.getItem(e)||localStorage.setItem(e,"auto")})()</script><script>(function(){const t="StackColorScheme",e=localStorage.getItem(t),n=window.matchMedia("(prefers-color-scheme: dark)").matches===!0;e=="dark"||e==="auto"&&n?document.documentElement.dataset.scheme="dark":document.documentElement.dataset.scheme="light"})()</script><div class="container main-container flex on-phone--column extended"><aside class="sidebar left-sidebar sticky"><button class="hamburger hamburger--spin" type=button id=toggle-menu aria-label=切换菜单>
 <span class=hamburger-box><span class=hamburger-inner></span></span></button><header><figure class=site-avatar><a href=/><img src=/img/avatar_hu_907f49b0dd0d46b.jpg width=300 height=300 class=site-logo loading=lazy alt=Avatar>
 </a><span class=emoji>🎀</span></figure><div class=site-meta><h1 class=site-name><a href=/>Mirika's Blog</a></h1><h2 class=site-description>Tell me, what scares you.</h2></div></header><ol class=menu-social><li><a href=https://github.com/MirikaRyu target=_blank title=GitHub rel=me><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-brand-github"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6.0 00-1.3-3.2 4.2 4.2.0 00-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3.0 00-6.2.0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2.0 00-.1 3.2A4.6 4.6.0 004 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></svg></a></li><li><a href=mailto:Mirika_Ryu@outlook.com target=_blank title=Email rel=me><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-mail"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M3 7a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/><path d="M3 7l9 6 9-6"/></svg></a></li><li><a href=/index.xml target=_blank title=RSS rel=me><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-rss"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M5 19m-1 0a1 1 0 102 0 1 1 0 10-2 0"/><path d="M4 4a16 16 0 0116 16"/><path d="M4 11a9 9 0 019 9"/></svg></a></li></ol><ol class=menu id=main-menu><li><a href=/><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-home"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M5 12H3l9-9 9 9h-2"/><path d="M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7"/><path d="M9 21v-6a2 2 0 012-2h2a2 2 0 012 2v6"/></svg>
 <span>主页</span></a></li><li><a href=/page/archives/><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-archive"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M3 4m0 2a2 2 0 012-2h14a2 2 0 012 2v0a2 2 0 01-2 2H5A2 2 0 013 6z"/><path d="M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8"/><path d="M10 12h4"/></svg>
@@ -31,55 +31,55 @@ nvme0n1                              232.9G
   └─Root-windows   btrfs                 4G                
 </code></pre><p><del>三块盘完美符合Memory Hierarchy</del><br>在这种磁盘布局下很难在不失灵活性的同时单独安装 Windows。</p><p>在继续之前先对照一下平台配置：</p><ul><li>CPU: AMD Ryzen 9 9900X (24)</li><li>主板: ROG STRIX B850-I GAMING WIFI</li><li>iGPU: AMD Granite Ridge [Radeon Graphics]</li><li>dGPU: AMD Radeon RX 7900 XT</li><li>Firmware: 1402 Wed 2025-11-12, AGESA 1.2.7.0</li><li>Kernel: 6.18.2</li></ul><p>需要注意的是不同的板U组合对后续直通的影响很大，同时RX 7000系的显卡会有很多quirks，会导致直通流程与一般的显卡不太一样。</p><h2 id=一些说明>一些说明</h2><p>我在接下来的步骤中将会直接使用QEMU command line启动虚拟机。<br>为什么不使用libvirt？用过，感觉很烂。这玩意对个人用户纯纯Overkill：</p><ul><li>XML？请输入文本。</li><li>Bloating，装完之后系统中多了一堆没用的用户/用户组和服务。</li><li>极难调试，喜欢我虚拟机启动后把你的配置文件给改了吗？</li></ul><p>VFIO PCI设备直通和硬件平台本身的联系非常密切，请一定根据<strong>你的硬件配置</strong>选择应该采用哪些步骤、如何配置。</p><p>如果你是按照我接下来的方法配置的Windows Guest，请<strong>绝对不要</strong>在Windows中开启内核隔离/Hyper-V等依赖虚拟化的功能，
 否则重启后会卡在启动界面无法进入Greeter。<br><del>如果你能在WinRE中挂载分区修改注册表那可以试试</del></p><p>虽然虚拟机到最后确实是跑在一个headless的Arch Linux上的，但是在安装Windows时由于没有显卡驱动所以可能需要使用QEMU的图形后端
-（如gtk，vnc）来显示VGA输出。<br>我这边是在另一个系统的桌面环境上安装配置完成后再迁移到目标系统的，当然在目标系统上安装图形环境后再卸载也是可行的。<br>然后在配置，安装和调试Windows的系统上需要安装以下工具：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>sudo pacman -S networkmanager dnsmasq qemu-img qemu-system-x86 qemu-ui-gtk swtpm usbutils virt-firmware
-</span></span></code></pre></div><p><strong>Hints:</strong></p><ul><li>查看ArchWiki时最好查看其英文页面，ArchWikiCN的翻译可能会有些许滞后和缺失。</li><li>除了可以使用<code>man qemu</code>查看整体的文档外，如果想查看某个选项/设备的参数可以使用<code>qemu-system-x86_64 xxx,help</code>。<br>比如使用<code>qemu-system-x86_64 -device vfio-pci,help</code>查看该设备接受的参数。</li></ul><h2 id=cpu-和芯片组>CPU 和芯片组</h2><p>先配置基本的CPU，内存和芯片组：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span><span style=color:#75715e># Machine</span>
-</span></span><span style=display:flex><span>-name windows
-</span></span><span style=display:flex><span>-machine q35,vmport<span style=color:#f92672>=</span>off,smm<span style=color:#f92672>=</span>on
-</span></span><span style=display:flex><span>-accel kvm
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span><span style=color:#75715e># SMP</span>
-</span></span><span style=display:flex><span>-cpu <span style=color:#e6db74>&#34;host,kvm=off,topoext=on,svm=on,hypervisor=on,</span><span style=color:#e6db74>${</span>hyperv_opts_str<span style=color:#e6db74>}</span><span style=color:#e6db74>&#34;</span>
-</span></span><span style=display:flex><span>-smp 23,sockets<span style=color:#f92672>=</span>1,cores<span style=color:#f92672>=</span>23,threads<span style=color:#f92672>=</span><span style=color:#ae81ff>1</span>
-</span></span><span style=display:flex><span>-m 29G
-</span></span></code></pre></div><p>其中<code>hyprv_opts_str</code>如下：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span><span style=color:#75715e># Hyper-V Enlightenments</span>
-</span></span><span style=display:flex><span>hyperv_opts<span style=color:#f92672>=(</span>
-</span></span><span style=display:flex><span>	hv_relaxed
-</span></span><span style=display:flex><span>	hv_vapic
-</span></span><span style=display:flex><span>	hv_spinlocks<span style=color:#f92672>=</span>0xfff
-</span></span><span style=display:flex><span>	hv_vpindex
-</span></span><span style=display:flex><span>	hv_synic
-</span></span><span style=display:flex><span>	hv_time
-</span></span><span style=display:flex><span>	hv_stimer
-</span></span><span style=display:flex><span>	hv_tlbflush
-</span></span><span style=display:flex><span>	hv_tlbflush_ext
-</span></span><span style=display:flex><span>	hv_ipi
-</span></span><span style=display:flex><span>	hv_stimer_direct
-</span></span><span style=display:flex><span>	hv_runtime
-</span></span><span style=display:flex><span>	hv_frequencies
-</span></span><span style=display:flex><span>	hv_reenlightenment
-</span></span><span style=display:flex><span>	hv_avic
-</span></span><span style=display:flex><span>	hv_xmm_input
-</span></span><span style=display:flex><span>	hv_vendor_id<span style=color:#f92672>=</span>0123456789ab
-</span></span><span style=display:flex><span><span style=color:#f92672>)</span>
-</span></span><span style=display:flex><span>hyperv_opts_str<span style=color:#f92672>=</span><span style=color:#66d9ef>$(</span>IFS<span style=color:#f92672>=</span>,; echo <span style=color:#e6db74>&#34;</span><span style=color:#e6db74>${</span>hyperv_opts[*]<span style=color:#e6db74>}</span><span style=color:#e6db74>&#34;</span><span style=color:#66d9ef>)</span>
+（如gtk，vnc）来显示VGA输出。<br>我这边是在另一个系统的桌面环境上安装配置完成后再迁移到目标系统的，当然在目标系统上安装图形环境后再卸载也是可行的。<br>然后在配置，安装和调试Windows的系统上需要安装以下工具：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl>sudo pacman -S networkmanager dnsmasq qemu-img qemu-system-x86 qemu-ui-gtk swtpm usbutils virt-firmware
+</span></span></code></pre></div><p><strong>Hints:</strong></p><ul><li>查看ArchWiki时最好查看其英文页面，ArchWikiCN的翻译可能会有些许滞后和缺失。</li><li>除了可以使用<code>man qemu</code>查看整体的文档外，如果想查看某个选项/设备的参数可以使用<code>qemu-system-x86_64 xxx,help</code>。<br>比如使用<code>qemu-system-x86_64 -device vfio-pci,help</code>查看该设备接受的参数。</li></ul><h2 id=cpu-和芯片组>CPU 和芯片组</h2><p>先配置基本的CPU，内存和芯片组：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl><span class=c1># Machine</span>
+</span></span><span class=line><span class=cl>-name windows
+</span></span><span class=line><span class=cl>-machine q35,vmport<span class=o>=</span>off,smm<span class=o>=</span>on
+</span></span><span class=line><span class=cl>-accel kvm
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=c1># SMP</span>
+</span></span><span class=line><span class=cl>-cpu <span class=s2>&#34;host,kvm=off,topoext=on,svm=on,hypervisor=on,</span><span class=si>${</span><span class=nv>hyperv_opts_str</span><span class=si>}</span><span class=s2>&#34;</span>
+</span></span><span class=line><span class=cl>-smp 23,sockets<span class=o>=</span>1,cores<span class=o>=</span>23,threads<span class=o>=</span><span class=m>1</span>
+</span></span><span class=line><span class=cl>-m 29G
+</span></span></code></pre></div><p>其中<code>hyprv_opts_str</code>如下：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl><span class=c1># Hyper-V Enlightenments</span>
+</span></span><span class=line><span class=cl><span class=nv>hyperv_opts</span><span class=o>=(</span>
+</span></span><span class=line><span class=cl>	hv_relaxed
+</span></span><span class=line><span class=cl>	hv_vapic
+</span></span><span class=line><span class=cl>	<span class=nv>hv_spinlocks</span><span class=o>=</span>0xfff
+</span></span><span class=line><span class=cl>	hv_vpindex
+</span></span><span class=line><span class=cl>	hv_synic
+</span></span><span class=line><span class=cl>	hv_time
+</span></span><span class=line><span class=cl>	hv_stimer
+</span></span><span class=line><span class=cl>	hv_tlbflush
+</span></span><span class=line><span class=cl>	hv_tlbflush_ext
+</span></span><span class=line><span class=cl>	hv_ipi
+</span></span><span class=line><span class=cl>	hv_stimer_direct
+</span></span><span class=line><span class=cl>	hv_runtime
+</span></span><span class=line><span class=cl>	hv_frequencies
+</span></span><span class=line><span class=cl>	hv_reenlightenment
+</span></span><span class=line><span class=cl>	hv_avic
+</span></span><span class=line><span class=cl>	hv_xmm_input
+</span></span><span class=line><span class=cl>	<span class=nv>hv_vendor_id</span><span class=o>=</span>0123456789ab
+</span></span><span class=line><span class=cl><span class=o>)</span>
+</span></span><span class=line><span class=cl><span class=nv>hyperv_opts_str</span><span class=o>=</span><span class=k>$(</span><span class=nv>IFS</span><span class=o>=</span>,<span class=p>;</span> <span class=nb>echo</span> <span class=s2>&#34;</span><span class=si>${</span><span class=nv>hyperv_opts</span><span class=p>[*]</span><span class=si>}</span><span class=s2>&#34;</span><span class=k>)</span>
 </span></span></code></pre></div><p>想使用VFIO功能芯片组只能用Q35，没的选，不加版本号默认就是最新的。<code>smm</code>似乎Windows能用上，遂开启。
-<code>vmport</code>用于模拟VMWare的IO Port，作用不明。<br>CPU这边则是直通宿主机的即可，<code>topoext</code>用于在AMD CPU上开启SMT，不开会报错。剩下的<code>svm</code>，<code>hyperv...</code>据说可以提升Windows的性能。<br>CPU拓扑和内存如果没有什么性能需求随便分配即可，这边留了1C1G给Linux hypervisor。</p><p>如果你是经验丰富的VFIO玩家，那你可能已经注意到这边对客户机的显卡驱动隐藏了虚拟化。<br>不过按理说AMD不会像隔壁一样禁止你在虚拟机里用他的GPU，那是什么原因呢🤔？留到<a class=link href=#gpu-%e7%9b%b4%e9%80%9a>显卡直通</a>的时候再讲好了（</p><p><strong>Hints:</strong></p><ul><li>根据 ArchWiki，自 Windows 10 1803 版本及以后需要在配置内核模块参数<code>kvm.ignore_msrs=1</code>和<code>kvm.report_ignored_msrs=0</code>以防止蓝屏。<br>但在我这边暂未出现该情况，如有需要可以添加。</li></ul><h2 id=uefi-和-tpm2>UEFI 和 TPM2</h2><p>虽然我只打算装Windows 10 IoT，但鬼知道哪天MICRO$OFT会不会发病让你强制升级Windows 11。<br>如果要装Windows 11的话tpm2还是最好打开，不然就算装上去了更新也很麻烦。</p><p>使用swtpm模拟tpm2：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>swtpm socket                                              <span style=color:#ae81ff>\
-</span></span></span><span style=display:flex><span>  --tpm2                                                  <span style=color:#ae81ff>\
-</span></span></span><span style=display:flex><span>  --tpmstate dir<span style=color:#f92672>=</span><span style=color:#e6db74>&#34;</span><span style=color:#e6db74>${</span>HOME<span style=color:#e6db74>}</span><span style=color:#e6db74>/firmware&#34;</span>                       <span style=color:#ae81ff>\
-</span></span></span><span style=display:flex><span>  --ctrl type<span style=color:#f92672>=</span>unixio,path<span style=color:#f92672>=</span><span style=color:#e6db74>&#34;</span><span style=color:#e6db74>${</span>XDG_RUNTIME_DIR<span style=color:#e6db74>}</span><span style=color:#e6db74>/tpm_sock&#34;</span>     
-</span></span></code></pre></div><p>传递给swtpm的目录必须存在，swtpm不会自己创建。</p><p>QEMU中的设置：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span><span style=color:#75715e># Firmware</span>
-</span></span><span style=display:flex><span>-drive <span style=color:#66d9ef>if</span><span style=color:#f92672>=</span>pflash,format<span style=color:#f92672>=</span>raw,readonly<span style=color:#f92672>=</span>on,file<span style=color:#f92672>=</span>/usr/share/edk2/x64/OVMF_CODE.secboot.4m.fd
-</span></span><span style=display:flex><span>-drive <span style=color:#66d9ef>if</span><span style=color:#f92672>=</span>pflash,format<span style=color:#f92672>=</span>raw,file<span style=color:#f92672>=</span><span style=color:#e6db74>&#34;</span>$HOME<span style=color:#e6db74>/firmware/nvram.fd&#34;</span>
-</span></span><span style=display:flex><span>-fw_cfg name<span style=color:#f92672>=</span>opt/ovmf/X-PciMmio64Mb,string<span style=color:#f92672>=</span><span style=color:#ae81ff>65536</span>
-</span></span><span style=display:flex><span>-global ICH9-LPC.disable_s3<span style=color:#f92672>=</span><span style=color:#ae81ff>1</span>
-</span></span><span style=display:flex><span>-global ICH9-LPC.disable_s4<span style=color:#f92672>=</span><span style=color:#ae81ff>1</span>
-</span></span><span style=display:flex><span>-boot menu<span style=color:#f92672>=</span>on,strict<span style=color:#f92672>=</span>on,reboot-timeout<span style=color:#f92672>=</span><span style=color:#ae81ff>2000</span>
-</span></span><span style=display:flex><span>-rtc base<span style=color:#f92672>=</span>localtime
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span><span style=color:#75715e># TPM2</span>
-</span></span><span style=display:flex><span>-chardev socket,id<span style=color:#f92672>=</span>ch0,path<span style=color:#f92672>=</span><span style=color:#e6db74>&#34;</span>$XDG_RUNTIME_DIR<span style=color:#e6db74>/tpm_sock&#34;</span>
-</span></span><span style=display:flex><span>-tpmdev emulator,id<span style=color:#f92672>=</span>tpm0,chardev<span style=color:#f92672>=</span>ch0
-</span></span><span style=display:flex><span>-device tpm-tis,tpmdev<span style=color:#f92672>=</span>tpm0
+<code>vmport</code>用于模拟VMWare的IO Port，作用不明。<br>CPU这边则是直通宿主机的即可，<code>topoext</code>用于在AMD CPU上开启SMT，不开会报错。剩下的<code>svm</code>，<code>hyperv...</code>据说可以提升Windows的性能。<br>CPU拓扑和内存如果没有什么性能需求随便分配即可，这边留了1C1G给Linux hypervisor。</p><p>如果你是经验丰富的VFIO玩家，那你可能已经注意到这边对客户机的显卡驱动隐藏了虚拟化。<br>不过按理说AMD不会像隔壁一样禁止你在虚拟机里用他的GPU，那是什么原因呢🤔？留到<a class=link href=#gpu-%e7%9b%b4%e9%80%9a>显卡直通</a>的时候再讲好了（</p><p><strong>Hints:</strong></p><ul><li>根据 ArchWiki，自 Windows 10 1803 版本及以后需要在配置内核模块参数<code>kvm.ignore_msrs=1</code>和<code>kvm.report_ignored_msrs=0</code>以防止蓝屏。<br>但在我这边暂未出现该情况，如有需要可以添加。</li></ul><h2 id=uefi-和-tpm2>UEFI 和 TPM2</h2><p>虽然我只打算装Windows 10 IoT，但鬼知道哪天MICRO$OFT会不会发病让你强制升级Windows 11。<br>如果要装Windows 11的话tpm2还是最好打开，不然就算装上去了更新也很麻烦。</p><p>使用swtpm模拟tpm2：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl>swtpm socket                                              <span class=se>\
+</span></span></span><span class=line><span class=cl>  --tpm2                                                  <span class=se>\
+</span></span></span><span class=line><span class=cl>  --tpmstate <span class=nv>dir</span><span class=o>=</span><span class=s2>&#34;</span><span class=si>${</span><span class=nv>HOME</span><span class=si>}</span><span class=s2>/firmware&#34;</span>                       <span class=se>\
+</span></span></span><span class=line><span class=cl>  --ctrl <span class=nv>type</span><span class=o>=</span>unixio,path<span class=o>=</span><span class=s2>&#34;</span><span class=si>${</span><span class=nv>XDG_RUNTIME_DIR</span><span class=si>}</span><span class=s2>/tpm_sock&#34;</span>     
+</span></span></code></pre></div><p>传递给swtpm的目录必须存在，swtpm不会自己创建。</p><p>QEMU中的设置：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl><span class=c1># Firmware</span>
+</span></span><span class=line><span class=cl>-drive <span class=k>if</span><span class=o>=</span>pflash,format<span class=o>=</span>raw,readonly<span class=o>=</span>on,file<span class=o>=</span>/usr/share/edk2/x64/OVMF_CODE.secboot.4m.fd
+</span></span><span class=line><span class=cl>-drive <span class=k>if</span><span class=o>=</span>pflash,format<span class=o>=</span>raw,file<span class=o>=</span><span class=s2>&#34;</span><span class=nv>$HOME</span><span class=s2>/firmware/nvram.fd&#34;</span>
+</span></span><span class=line><span class=cl>-fw_cfg <span class=nv>name</span><span class=o>=</span>opt/ovmf/X-PciMmio64Mb,string<span class=o>=</span><span class=m>65536</span>
+</span></span><span class=line><span class=cl>-global ICH9-LPC.disable_s3<span class=o>=</span><span class=m>1</span>
+</span></span><span class=line><span class=cl>-global ICH9-LPC.disable_s4<span class=o>=</span><span class=m>1</span>
+</span></span><span class=line><span class=cl>-boot <span class=nv>menu</span><span class=o>=</span>on,strict<span class=o>=</span>on,reboot-timeout<span class=o>=</span><span class=m>2000</span>
+</span></span><span class=line><span class=cl>-rtc <span class=nv>base</span><span class=o>=</span>localtime
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=c1># TPM2</span>
+</span></span><span class=line><span class=cl>-chardev socket,id<span class=o>=</span>ch0,path<span class=o>=</span><span class=s2>&#34;</span><span class=nv>$XDG_RUNTIME_DIR</span><span class=s2>/tpm_sock&#34;</span>
+</span></span><span class=line><span class=cl>-tpmdev emulator,id<span class=o>=</span>tpm0,chardev<span class=o>=</span>ch0
+</span></span><span class=line><span class=cl>-device tpm-tis,tpmdev<span class=o>=</span>tpm0
 </span></span></code></pre></div><p>前两行指定了UEFI固件和存储设置的NVRAM文件。如果你希望使用secure boot，
 那么第一个UEFI固件必须选择带secboot字样的文件，这个在不同发行版之间的名字差别不大。<br>但对于第二个NVRAM模板文件，不同发行版之间的差异较大。如果你是Arch Linux用户，那么请参阅后面的<a class=link href=#%e5%ae%89%e5%85%a8%e5%90%af%e5%8a%a8>安全启动</a>这一小节；
 如果你使用Fedora，那么应该能够找到一个enroll了微软证书的secboot NVRAM模板，直接拷贝后使用即可开启secboot.</p><p><code>fw_cfg</code>打开固件对于大于4G地址空间的解码支持，edk2面板中没有提供此入口，用于下文的显卡直通，不过目前感觉没啥卵用。</p><p>接下来的几行关闭了系统对于suspend(S3)和hibernate(S4)的支持以防Windows睡死，并将客户机的RTC置为local time。</p><h2 id=pcie-拓扑>PCIe 拓扑</h2><p>本来只是想着能把设备连上就行，结果中间出了一堆问题，因此在解决问题的同时顺便学习了一下PCIe。</p><h3 id=pcie-简介>PCIe 简介</h3><p>PCIe是现代消费级计算机中唯一的内部高速总线，负责连接CPU与几乎所有的外围设备，甚至连接CPU与CPU内部的各种功能。<br>PCIe是从PCI这个并行总线演化而来的，在软件配置上完全兼容PCI，因此在编写软件时，一般都直接称PCIe设备为PCI设备。</p><p>我们先来看一下PCIe的地址格式，BDF，即Bus:Device.Function：</p><pre tabindex=0><code>0000:BB:DD.F
@@ -181,19 +181,19 @@ nvme0n1                              232.9G
 也可以是相同类型的，比如PCIe和PCIe，也就是PCIe Switch。所以bridge还有一个重要作用就是扩展已有的总线。</p><p>划分完RC之后剩下的部分就是一个典型的PCIe拓扑了。系统中总共有6个GPP Bridge，就是6个Root Port，其中有两个是internal的。
 Internal的部分用于连接CPU内的非核心功能，比如USB控制器，核显以及AMD的PSP（这玩意是个ARM核）。剩下的4个根端口，<code>00:01.1</code>连接了显卡，
 <code>00:01.2</code>连接的是第一块SSD，<code>00:02.1</code>连接到了南桥芯片组（其实就是个Switch加俩Controller，甚至可以当作PCIe扩展卡脱离AMD平台单独使用🤣），
-<code>00:02.2</code>与另一块SSD相连。最后南桥的7个Downstream Port中有4个分别连接了网卡，USB控制器和AHCI控制器。</p><h3 id=配置-pcie-拓扑>配置 PCIe 拓扑</h3><p>既然已经大致了解了PCIe，那么就可以使用以下配置描述一个相对真实的拓扑了：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span><span style=color:#75715e># PCIe Topology</span>
-</span></span><span style=display:flex><span>-device pcie-root-port,id<span style=color:#f92672>=</span>rp0,bus<span style=color:#f92672>=</span>pcie.0,slot<span style=color:#f92672>=</span><span style=color:#ae81ff>1</span>
-</span></span><span style=display:flex><span>-device x3130-upstream,id<span style=color:#f92672>=</span>swu0,bus<span style=color:#f92672>=</span>rp0
-</span></span><span style=display:flex><span>-device xio3130-downstream,id<span style=color:#f92672>=</span>swd0,bus<span style=color:#f92672>=</span>swu0,slot<span style=color:#f92672>=</span><span style=color:#ae81ff>4</span>
-</span></span><span style=display:flex><span>-device xio3130-downstream,id<span style=color:#f92672>=</span>swd1,bus<span style=color:#f92672>=</span>swu0,slot<span style=color:#f92672>=</span><span style=color:#ae81ff>5</span>
-</span></span><span style=display:flex><span>-device xio3130-downstream,id<span style=color:#f92672>=</span>swd2,bus<span style=color:#f92672>=</span>swu0,slot<span style=color:#f92672>=</span><span style=color:#ae81ff>6</span>
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span>-device pcie-root-port,id<span style=color:#f92672>=</span>rp1,bus<span style=color:#f92672>=</span>pcie.0,slot<span style=color:#f92672>=</span><span style=color:#ae81ff>2</span>
-</span></span><span style=display:flex><span>-device x3130-upstream,id<span style=color:#f92672>=</span>swu1,bus<span style=color:#f92672>=</span>rp1
-</span></span><span style=display:flex><span>-device xio3130-downstream,id<span style=color:#f92672>=</span>swd3,bus<span style=color:#f92672>=</span>swu1,slot<span style=color:#f92672>=</span><span style=color:#ae81ff>7</span>
-</span></span><span style=display:flex><span>-device xio3130-downstream,id<span style=color:#f92672>=</span>swd4,bus<span style=color:#f92672>=</span>swu1,slot<span style=color:#f92672>=</span><span style=color:#ae81ff>8</span>
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span>-device pcie-root-port,id<span style=color:#f92672>=</span>rp2,bus<span style=color:#f92672>=</span>pcie.0,slot<span style=color:#f92672>=</span><span style=color:#ae81ff>3</span>
+<code>00:02.2</code>与另一块SSD相连。最后南桥的7个Downstream Port中有4个分别连接了网卡，USB控制器和AHCI控制器。</p><h3 id=配置-pcie-拓扑>配置 PCIe 拓扑</h3><p>既然已经大致了解了PCIe，那么就可以使用以下配置描述一个相对真实的拓扑了：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl><span class=c1># PCIe Topology</span>
+</span></span><span class=line><span class=cl>-device pcie-root-port,id<span class=o>=</span>rp0,bus<span class=o>=</span>pcie.0,slot<span class=o>=</span><span class=m>1</span>
+</span></span><span class=line><span class=cl>-device x3130-upstream,id<span class=o>=</span>swu0,bus<span class=o>=</span>rp0
+</span></span><span class=line><span class=cl>-device xio3130-downstream,id<span class=o>=</span>swd0,bus<span class=o>=</span>swu0,slot<span class=o>=</span><span class=m>4</span>
+</span></span><span class=line><span class=cl>-device xio3130-downstream,id<span class=o>=</span>swd1,bus<span class=o>=</span>swu0,slot<span class=o>=</span><span class=m>5</span>
+</span></span><span class=line><span class=cl>-device xio3130-downstream,id<span class=o>=</span>swd2,bus<span class=o>=</span>swu0,slot<span class=o>=</span><span class=m>6</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>-device pcie-root-port,id<span class=o>=</span>rp1,bus<span class=o>=</span>pcie.0,slot<span class=o>=</span><span class=m>2</span>
+</span></span><span class=line><span class=cl>-device x3130-upstream,id<span class=o>=</span>swu1,bus<span class=o>=</span>rp1
+</span></span><span class=line><span class=cl>-device xio3130-downstream,id<span class=o>=</span>swd3,bus<span class=o>=</span>swu1,slot<span class=o>=</span><span class=m>7</span>
+</span></span><span class=line><span class=cl>-device xio3130-downstream,id<span class=o>=</span>swd4,bus<span class=o>=</span>swu1,slot<span class=o>=</span><span class=m>8</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>-device pcie-root-port,id<span class=o>=</span>rp2,bus<span class=o>=</span>pcie.0,slot<span class=o>=</span><span class=m>3</span>
 </span></span></code></pre></div><p>先从根总线上引出三个根端口分别用于连接网卡和存储、USB控制器以及显卡。<code>pcie-root-port</code>就类似于上文的<code>GPP Bridge</code>，用于从RC中引出根端口。
 而<code>id</code>，顾名思义，就是为该设备起个别名以便于引用；<code>bus</code>则是指该设备要连接到哪个总线上。</p><p>至于<code>chassis</code>和<code>slot</code>，非常奇怪，我几乎找不到说明这些参数的文档。
 QEMU的<a class=link href=https://github.com/qemu/qemu/blob/master/docs/pcie.txt target=_blank rel=noopener>文档</a>中也只是提到了只需要确保每个设备的(chassis,slot)组合不同即可。
@@ -213,46 +213,46 @@ LLM认为<code>chassis</code>对应的是实际的机箱，<code>slot</code>对�
            +-1f.2  Intel Corporation 82801IR/IO/IH (ICH9R/DO/DH) 6 port SATA Controller [AHCI mode] [8086:2922]
            \-1f.3  Intel Corporation 82801I (ICH9 Family) SMBus Controller [8086:2930]
 </code></pre><h2 id=网络配置>网络配置</h2><p>对于没有什么特殊需求的情况，选择NAT即可。<del>其实是辣鸡消费级无线网卡不支持桥接</del></p><h3 id=配置-networkmanager>配置 Networkmanager</h3><p>这里使用的是Networkmanager + dnsmasq的组合，从而免去配置nftable的麻烦。
-由于Networkmanager主要管理本地链路，因此需要dnsmasq作为DHCP服务器，不过一般不需要自己手动配置。</p><p>先使用<code>nmcli</code>创建一个名字为<code>virbr0</code>的网桥并关闭stp：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>nmcli connection add type bridge ifname virbr0 stp off
-</span></span></code></pre></div><p>这边网桥的名字最好就叫<code>virbr0</code>，否则需要修改<code>/etc/qemu/bridge.conf</code>添加allow规则，不然虚拟机启动时会被QEMU的ACL规则阻止。</p><p>然后设置规则：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>nmcli connection modify bridge-virbr0 ipv4.method shared
-</span></span><span style=display:flex><span>nmcli connection modify bridge-virbr0 ipv6.method shared
-</span></span></code></pre></div><p>到此，在一般网络环境下的Host的网络配置就完成了。</p><p>如果很不巧，你使用的也是类似校园网这一类不支持IPv6 PD(Prefix Delegation)的网络，那么进入虚拟机后应该会发现没有IPv6的地址。<br>而且由于NetworkManager在IPv6模式下似乎不会自动进行NAT，因此需要我们手动配置来实现IPv6的NAT。</p><p>先规划一段ULA地址，并将其手动分配给虚拟机网桥：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>nmcli connection modify bridge-virbr0 ipv6.addresses fd16:959a:4569::/48
+由于Networkmanager主要管理本地链路，因此需要dnsmasq作为DHCP服务器，不过一般不需要自己手动配置。</p><p>先使用<code>nmcli</code>创建一个名字为<code>virbr0</code>的网桥并关闭stp：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl>nmcli connection add <span class=nb>type</span> bridge ifname virbr0 stp off
+</span></span></code></pre></div><p>这边网桥的名字最好就叫<code>virbr0</code>，否则需要修改<code>/etc/qemu/bridge.conf</code>添加allow规则，不然虚拟机启动时会被QEMU的ACL规则阻止。</p><p>然后设置规则：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl>nmcli connection modify bridge-virbr0 ipv4.method shared
+</span></span><span class=line><span class=cl>nmcli connection modify bridge-virbr0 ipv6.method shared
+</span></span></code></pre></div><p>到此，在一般网络环境下的Host的网络配置就完成了。</p><p>如果很不巧，你使用的也是类似校园网这一类不支持IPv6 PD(Prefix Delegation)的网络，那么进入虚拟机后应该会发现没有IPv6的地址。<br>而且由于NetworkManager在IPv6模式下似乎不会自动进行NAT，因此需要我们手动配置来实现IPv6的NAT。</p><p>先规划一段ULA地址，并将其手动分配给虚拟机网桥：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl>nmcli connection modify bridge-virbr0 ipv6.addresses fd16:959a:4569::/48
 </span></span></code></pre></div><p>注意改完之后其<code>ipv6.method</code>还要保持为<code>shared</code>。</p><p>然后修改<code>/etc/nftables.conf</code>加入IPv6的NAT规则：</p><pre tabindex=0><code>table ip6 nat {
 	chain postrouting {
 		type nat hook postrouting priority srcnat; policy accept;
 		oifname != &#34;lo&#34; masquerade
 	}
 }
-</code></pre><p>如果原来的文件中包含一些防火墙之类的默认配置，请根据需求决定是否保留。<br>更改完后启用或者重启nftable.service即可：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>sudo systemctl enable --now nftables.service
-</span></span></code></pre></div><h3 id=为客户机添加网卡>为客户机添加网卡</h3><p>先使用<code>openssl</code>生成一串随机数作为网卡的MAC地址：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>openssl rand -hex <span style=color:#ae81ff>4</span>
+</code></pre><p>如果原来的文件中包含一些防火墙之类的默认配置，请根据需求决定是否保留。<br>更改完后启用或者重启nftable.service即可：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl>sudo systemctl <span class=nb>enable</span> --now nftables.service
+</span></span></code></pre></div><h3 id=为客户机添加网卡>为客户机添加网卡</h3><p>先使用<code>openssl</code>生成一串随机数作为网卡的MAC地址：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl>openssl rand -hex <span class=m>4</span>
 </span></span></code></pre></div><pre tabindex=0><code>cb25ff96
-</code></pre><p>那么其MAC地址就为<code>52:54:cb:25:ff:96</code>，注意要以<code>52:54</code>开头。</p><p>然后将网卡作为PCI设备连接至第一个交换机的下行口即可：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span><span style=color:#75715e># Network</span>
-</span></span><span style=display:flex><span>-netdev bridge,id<span style=color:#f92672>=</span>net0,br<span style=color:#f92672>=</span>virbr0
-</span></span><span style=display:flex><span>-device virtio-net-pci,netdev<span style=color:#f92672>=</span>net0,mac<span style=color:#f92672>=</span>52:54:cb:25:ff:96,bus<span style=color:#f92672>=</span>swd0
-</span></span></code></pre></div><p>在客户机中直接ssh到其显示的网关即可和宿主机建立连接。</p><h2 id=存储配置>存储配置</h2><p>先创建一个64GiB的QEMU qcow2镜像作为Windows的系统盘：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>qemu-img create -f qcow2 rootfs.qcow2 -o nocow<span style=color:#f92672>=</span>on 64G
-</span></span></code></pre></div><p>如果你使用的是Btrfs，需要像上面这样关闭qcow2镜像的COW功能。</p><p>接下来需要准备一个Windows安装ISO和一个virtio的Windows驱动ISO，以及找个块设备作为Windows的数据盘：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span><span style=color:#75715e># Storage</span>
-</span></span><span style=display:flex><span>-drive <span style=color:#66d9ef>if</span><span style=color:#f92672>=</span>none,media<span style=color:#f92672>=</span>cdrom,id<span style=color:#f92672>=</span>cd0,file<span style=color:#f92672>=</span><span style=color:#e6db74>&#34;</span>$HOME<span style=color:#e6db74>/storage/Windows10-21H2-LTSC-IoT.iso&#34;</span>
-</span></span><span style=display:flex><span>-drive <span style=color:#66d9ef>if</span><span style=color:#f92672>=</span>none,media<span style=color:#f92672>=</span>cdrom,id<span style=color:#f92672>=</span>cd1,file<span style=color:#f92672>=</span><span style=color:#e6db74>&#34;</span>$HOME<span style=color:#e6db74>/storage/virtio-win.iso&#34;</span>
-</span></span><span style=display:flex><span>-drive <span style=color:#66d9ef>if</span><span style=color:#f92672>=</span>none,format<span style=color:#f92672>=</span>qcow2,id<span style=color:#f92672>=</span>disk0,file<span style=color:#f92672>=</span><span style=color:#e6db74>&#34;</span>$HOME<span style=color:#e6db74>/storage/rootfs.qcow2&#34;</span>
-</span></span><span style=display:flex><span>-drive <span style=color:#66d9ef>if</span><span style=color:#f92672>=</span>none,format<span style=color:#f92672>=</span>raw,id<span style=color:#f92672>=</span>disk1,file<span style=color:#f92672>=</span>/dev/Data/windows
-</span></span></code></pre></div><p>然后再将以上的存储插入相应设备并连接到总线上：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>-device ide-cd,drive<span style=color:#f92672>=</span>cd0,bus<span style=color:#f92672>=</span>ide.0,bootindex<span style=color:#f92672>=</span><span style=color:#ae81ff>1</span>
-</span></span><span style=display:flex><span>-device ide-cd,drive<span style=color:#f92672>=</span>cd1,bus<span style=color:#f92672>=</span>ide.1
-</span></span><span style=display:flex><span>-device virtio-blk-pci,drive<span style=color:#f92672>=</span>disk0,bus<span style=color:#f92672>=</span>swd1,bootindex<span style=color:#f92672>=</span><span style=color:#ae81ff>0</span>
-</span></span><span style=display:flex><span>-device virtio-blk-pci,drive<span style=color:#f92672>=</span>disk1,bus<span style=color:#f92672>=</span>swd2
+</code></pre><p>那么其MAC地址就为<code>52:54:cb:25:ff:96</code>，注意要以<code>52:54</code>开头。</p><p>然后将网卡作为PCI设备连接至第一个交换机的下行口即可：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl><span class=c1># Network</span>
+</span></span><span class=line><span class=cl>-netdev bridge,id<span class=o>=</span>net0,br<span class=o>=</span>virbr0
+</span></span><span class=line><span class=cl>-device virtio-net-pci,netdev<span class=o>=</span>net0,mac<span class=o>=</span>52:54:cb:25:ff:96,bus<span class=o>=</span>swd0
+</span></span></code></pre></div><p>在客户机中直接ssh到其显示的网关即可和宿主机建立连接。</p><h2 id=存储配置>存储配置</h2><p>先创建一个64GiB的QEMU qcow2镜像作为Windows的系统盘：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl>qemu-img create -f qcow2 rootfs.qcow2 -o <span class=nv>nocow</span><span class=o>=</span>on 64G
+</span></span></code></pre></div><p>如果你使用的是Btrfs，需要像上面这样关闭qcow2镜像的COW功能。</p><p>接下来需要准备一个Windows安装ISO和一个virtio的Windows驱动ISO，以及找个块设备作为Windows的数据盘：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl><span class=c1># Storage</span>
+</span></span><span class=line><span class=cl>-drive <span class=k>if</span><span class=o>=</span>none,media<span class=o>=</span>cdrom,id<span class=o>=</span>cd0,file<span class=o>=</span><span class=s2>&#34;</span><span class=nv>$HOME</span><span class=s2>/storage/Windows10-21H2-LTSC-IoT.iso&#34;</span>
+</span></span><span class=line><span class=cl>-drive <span class=k>if</span><span class=o>=</span>none,media<span class=o>=</span>cdrom,id<span class=o>=</span>cd1,file<span class=o>=</span><span class=s2>&#34;</span><span class=nv>$HOME</span><span class=s2>/storage/virtio-win.iso&#34;</span>
+</span></span><span class=line><span class=cl>-drive <span class=k>if</span><span class=o>=</span>none,format<span class=o>=</span>qcow2,id<span class=o>=</span>disk0,file<span class=o>=</span><span class=s2>&#34;</span><span class=nv>$HOME</span><span class=s2>/storage/rootfs.qcow2&#34;</span>
+</span></span><span class=line><span class=cl>-drive <span class=k>if</span><span class=o>=</span>none,format<span class=o>=</span>raw,id<span class=o>=</span>disk1,file<span class=o>=</span>/dev/Data/windows
+</span></span></code></pre></div><p>然后再将以上的存储插入相应设备并连接到总线上：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl>-device ide-cd,drive<span class=o>=</span>cd0,bus<span class=o>=</span>ide.0,bootindex<span class=o>=</span><span class=m>1</span>
+</span></span><span class=line><span class=cl>-device ide-cd,drive<span class=o>=</span>cd1,bus<span class=o>=</span>ide.1
+</span></span><span class=line><span class=cl>-device virtio-blk-pci,drive<span class=o>=</span>disk0,bus<span class=o>=</span>swd1,bootindex<span class=o>=</span><span class=m>0</span>
+</span></span><span class=line><span class=cl>-device virtio-blk-pci,drive<span class=o>=</span>disk1,bus<span class=o>=</span>swd2
 </span></span></code></pre></div><p>Q35芯片组的RC自带一个AHCI控制器，因此可以直接将<code>cd0</code>和<code>cd1</code>作为SATA设备连接上去。<br>接着再将Windows需要的系统盘和数据盘分别作为PCI设备连接至交换机上。<br>最后这里使用<code>bootindex</code>将启动顺序调整为磁盘 -> 安装ISO，就可以在安装完成后无须手动调整启动顺序了。<del>虽然安装程序会自己调</del></p><p><strong>Hints:</strong></p><ul><li><p>如果需要像上面这样使用<code>ide-cd</code>连接多个设备，则需要手动指定每个设备的bus，否则会全部默认连接到<code>ide.0</code>上然后出错。</p></li><li><p>由于这边使用了virtio磁盘，因此需要在Windows安装界面手动加载virtio驱动，不然只会看到空空如也的磁盘列表。</p></li><li><p>注意这边传给客户机的block device和在物理机上看到的是截然不同的。物理机的系统知道这个block device是一个磁盘的分区或者logic volume，
 但虚拟机看到的是一个「设备」，也就是无分区表的磁盘。因此你在Windows Guest中使用NTFS格式化完该块设备后，在宿主机中
 应该是不能直接识别出文件系统类型并挂载的 <strong>（不要在客户机运行的同时尝试在宿主机挂载）</strong>。<br>理论上来说，如果客户机能够将整个磁盘格式化为无分区表文件系统的话，宿主机应该是可以直接识别到的。
-但很遗憾，尽管技术上允许，这个极为先进的N(nao)T(tan)F(file)S(system)却禁止你这么做🤡 <del>你那ReFS怎么样了</del></p><p>不过既然我们已经知道其结构了，想挂载还是非常容易的：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>sudo losetup -fP /dev/Data/windows
+但很遗憾，尽管技术上允许，这个极为先进的N(nao)T(tan)F(file)S(system)却禁止你这么做🤡 <del>你那ReFS怎么样了</del></p><p>不过既然我们已经知道其结构了，想挂载还是非常容易的：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl>sudo losetup -fP /dev/Data/windows
 </span></span></code></pre></div><p>然后<code>mount /dev/loopXpY</code>即可。</p></li></ul><h2 id=usb-直通>USB 直通</h2><h3 id=为什么要直通控制器>为什么要直通控制器？</h3><p>直通宿主机的PCIe USB Controller就是相当于将其管理的整一棵USB树交给客户机进行管理，这可以使得客户机有更接近真机的体验。<br>控制器直通对设备热插拔的支持远比直通单个USB设备要好，而且一般一台电脑中的USB控制器的数量比较少，
-直通起来也远比单独指定USB Device/Hub要方便。</p><h3 id=确定-iommu-group>确定 IOMMU Group</h3><p>在继续之前需要确保你的系统符合以下要求：</p><ul><li>CPU支持硬件虚拟化。</li><li>CPU/主板支持并开启IOMMU和中断重映射，可以使用以下命令验证：<div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>sudo dmesg | grep -e IOMMU -e remapping
-</span></span></code></pre></div></li></ul><p>然后使用以下脚本查看自己系统的IOMMU分组情况：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span><span style=color:#75715e>#! /usr/bin/env bash
-</span></span></span><span style=display:flex><span>shopt -s nullglob
-</span></span><span style=display:flex><span><span style=color:#66d9ef>for</span> g in <span style=color:#66d9ef>$(</span>find /sys/kernel/iommu_groups/* -maxdepth <span style=color:#ae81ff>0</span> -type d | sort -V<span style=color:#66d9ef>)</span>; <span style=color:#66d9ef>do</span>
-</span></span><span style=display:flex><span>    echo <span style=color:#e6db74>&#34;IOMMU Group </span><span style=color:#e6db74>${</span>g##*/<span style=color:#e6db74>}</span><span style=color:#e6db74>:&#34;</span>
-</span></span><span style=display:flex><span>    <span style=color:#66d9ef>for</span> d in $g/devices/*; <span style=color:#66d9ef>do</span>
-</span></span><span style=display:flex><span>        echo -e <span style=color:#e6db74>&#34;\t</span><span style=color:#66d9ef>$(</span>lspci -nns <span style=color:#e6db74>${</span>d##*/<span style=color:#e6db74>}</span><span style=color:#66d9ef>)</span><span style=color:#e6db74>&#34;</span>
-</span></span><span style=display:flex><span>    <span style=color:#66d9ef>done</span>;
-</span></span><span style=display:flex><span><span style=color:#66d9ef>done</span>;
+直通起来也远比单独指定USB Device/Hub要方便。</p><h3 id=确定-iommu-group>确定 IOMMU Group</h3><p>在继续之前需要确保你的系统符合以下要求：</p><ul><li>CPU支持硬件虚拟化。</li><li>CPU/主板支持并开启IOMMU和中断重映射，可以使用以下命令验证：<div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl>sudo dmesg <span class=p>|</span> grep -e IOMMU -e remapping
+</span></span></code></pre></div></li></ul><p>然后使用以下脚本查看自己系统的IOMMU分组情况：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl><span class=cp>#! /usr/bin/env bash
+</span></span></span><span class=line><span class=cl><span class=nb>shopt</span> -s nullglob
+</span></span><span class=line><span class=cl><span class=k>for</span> g in <span class=k>$(</span>find /sys/kernel/iommu_groups/* -maxdepth <span class=m>0</span> -type d <span class=p>|</span> sort -V<span class=k>)</span><span class=p>;</span> <span class=k>do</span>
+</span></span><span class=line><span class=cl>    <span class=nb>echo</span> <span class=s2>&#34;IOMMU Group </span><span class=si>${</span><span class=nv>g</span><span class=p>##*/</span><span class=si>}</span><span class=s2>:&#34;</span>
+</span></span><span class=line><span class=cl>    <span class=k>for</span> d in <span class=nv>$g</span>/devices/*<span class=p>;</span> <span class=k>do</span>
+</span></span><span class=line><span class=cl>        <span class=nb>echo</span> -e <span class=s2>&#34;\t</span><span class=k>$(</span>lspci -nns <span class=si>${</span><span class=nv>d</span><span class=p>##*/</span><span class=si>}</span><span class=k>)</span><span class=s2>&#34;</span>
+</span></span><span class=line><span class=cl>    <span class=k>done</span><span class=p>;</span>
+</span></span><span class=line><span class=cl><span class=k>done</span><span class=p>;</span>
 </span></span></code></pre></div><p>输出应该类似于：</p><pre tabindex=0><code>...
 IOMMU Group 15:
         03:00.0 VGA compatible controller [0300]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XT/7900 XTX/7900 GRE/7900M] [1002:744c] (rev cc)
@@ -272,18 +272,18 @@ IOMMU Group 33:
 IOMMU Group 34:
         10:00.0 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 2.0 xHCI [1022:15b8]
 </code></pre><p>应该能够看到每一个PCI设备都被划分到了某个Group中。在直通时，每一个IOMMU Group是最小单位。
-也就是直通组内的任何一个设备都必须一起直通组内的的其余设备。<br>在我的系统上，每个USB Controller都在一个单独的IOMMU Group中，因此<strong>单从这个方面看</strong>，我的每个controller可以单独直通。</p><h3 id=确定具体物理接口与控制器的对应关系>确定具体物理接口与控制器的对应关系</h3><p>由于不太可能将所有的控制器直通给客户机，所以有必要分清哪些接口是归宿主机管的。这也能够方便后续在两台机器之间切换设备。</p><p>先看看系统中有哪些USB控制器：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>lspci -nn | grep USB
+也就是直通组内的任何一个设备都必须一起直通组内的的其余设备。<br>在我的系统上，每个USB Controller都在一个单独的IOMMU Group中，因此<strong>单从这个方面看</strong>，我的每个controller可以单独直通。</p><h3 id=确定具体物理接口与控制器的对应关系>确定具体物理接口与控制器的对应关系</h3><p>由于不太可能将所有的控制器直通给客户机，所以有必要分清哪些接口是归宿主机管的。这也能够方便后续在两台机器之间切换设备。</p><p>先看看系统中有哪些USB控制器：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl>lspci -nn <span class=p>|</span> grep USB
 </span></span></code></pre></div><pre tabindex=0><code>03:00.2 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 USB [1002:7446]
 0c:00.0 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] 800 Series Chipset USB 3.x XHCI Controller [1022:43fc] (rev 01)
 0f:00.3 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b6]
 0f:00.4 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b7]
 10:00.0 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 2.0 xHCI [1022:15b8]
-</code></pre><p>接下来使用这条命令在sysfs中查找对应和IOMMU Group：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span><span style=color:#66d9ef>for</span> usb_ctrl in /sys/bus/pci/devices/*/usb*; <span style=color:#66d9ef>do</span> 												<span style=color:#ae81ff>\
-</span></span></span><span style=display:flex><span>	pci_path<span style=color:#f92672>=</span><span style=color:#e6db74>${</span>usb_ctrl%/*<span style=color:#e6db74>}</span>;																	<span style=color:#ae81ff>\
-</span></span></span><span style=display:flex><span>	iommu_group<span style=color:#f92672>=</span><span style=color:#66d9ef>$(</span>readlink $pci_path/iommu_group<span style=color:#66d9ef>)</span>;												<span style=color:#ae81ff>\
-</span></span></span><span style=display:flex><span>	echo <span style=color:#e6db74>&#34;Bus </span><span style=color:#66d9ef>$(</span>cat $usb_ctrl/busnum<span style=color:#66d9ef>)</span><span style=color:#e6db74> --&gt; </span><span style=color:#e6db74>${</span>pci_path##*/<span style=color:#e6db74>}</span><span style=color:#e6db74> (IOMMU group </span><span style=color:#e6db74>${</span>iommu_group##*/<span style=color:#e6db74>}</span><span style=color:#e6db74>)&#34;</span>;	<span style=color:#ae81ff>\
-</span></span></span><span style=display:flex><span>	lsusb -s <span style=color:#e6db74>${</span>usb_ctrl#*/usb<span style=color:#e6db74>}</span>:; echo;															<span style=color:#ae81ff>\
-</span></span></span><span style=display:flex><span><span style=color:#66d9ef>done</span>
+</code></pre><p>接下来使用这条命令在sysfs中查找对应和IOMMU Group：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl><span class=k>for</span> usb_ctrl in /sys/bus/pci/devices/*/usb*<span class=p>;</span> <span class=k>do</span> 												<span class=se>\
+</span></span></span><span class=line><span class=cl>	<span class=nv>pci_path</span><span class=o>=</span><span class=si>${</span><span class=nv>usb_ctrl</span><span class=p>%/*</span><span class=si>}</span><span class=p>;</span>																	<span class=se>\
+</span></span></span><span class=line><span class=cl>	<span class=nv>iommu_group</span><span class=o>=</span><span class=k>$(</span>readlink <span class=nv>$pci_path</span>/iommu_group<span class=k>)</span><span class=p>;</span>												<span class=se>\
+</span></span></span><span class=line><span class=cl>	<span class=nb>echo</span> <span class=s2>&#34;Bus </span><span class=k>$(</span>cat <span class=nv>$usb_ctrl</span>/busnum<span class=k>)</span><span class=s2> --&gt; </span><span class=si>${</span><span class=nv>pci_path</span><span class=p>##*/</span><span class=si>}</span><span class=s2> (IOMMU group </span><span class=si>${</span><span class=nv>iommu_group</span><span class=p>##*/</span><span class=si>}</span><span class=s2>)&#34;</span><span class=p>;</span>	<span class=se>\
+</span></span></span><span class=line><span class=cl>	lsusb -s <span class=si>${</span><span class=nv>usb_ctrl</span><span class=p>#*/usb</span><span class=si>}</span>:<span class=p>;</span> echo<span class=p>;</span>															<span class=se>\
+</span></span></span><span class=line><span class=cl><span class=k>done</span>
 </span></span></code></pre></div><pre tabindex=0><code>Bus 1 --&gt; 0000:03:00.2 (IOMMU group 17)
 Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
 
@@ -319,18 +319,18 @@ Bus 008 Device 002: ID 05e3:0620 Genesys Logic, Inc. GL3523 Hub
 Bus 9 --&gt; 0000:10:00.0 (IOMMU group 34)
 Bus 009 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
 </code></pre><p>通过以上步骤我们拿到的是USB控制器到USB Bus的映射。那怎么拿到对物理接口的映射？<br>拿一个USB设备把你电脑上的所有USB口插一遍即可😯<br>如果看到某个USB设备和某个控制器一起出现，那么该接口就是属于这个Controller控制的。</p><h3 id=确定直通的控制器>确定直通的控制器</h3><p><strong>⚠️警告：接下来的操作可能会导致电脑Freeze/Kernel Panic，请提前保存好数据。</strong></p><p>既然现在拿到Controller和物理接口的对应关系，是不是就可以随心所欲分配了呢？<br>Humm&mldr; 没这么简单。</p><p>由于一些神秘原因，如果将宿主机上的某些USB Controller绑定到vfio-pci驱动并交给客户机使用时会导致整台电脑直接Freeze
-（至少在我这里是这样）。因此必须先测试出有哪些控制器/控制器组合是不能直通的。</p><p>先看看如何将一个USB控制器分配给客户机：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span><span style=color:#75715e># Rebind the controller to vfio-pci</span>
-</span></span><span style=display:flex><span>echo <span style=color:#e6db74>&#39;0000:0c:00.0&#39;</span> | sudo tee /sys/bus/pci/drivers/xhci_hcd/unbind
-</span></span><span style=display:flex><span>echo <span style=color:#e6db74>&#39;1022 43fc&#39;</span> | sudo tee /sys/bus/pci/drivers/vfio-pci/new_id
-</span></span></code></pre></div><p>然后在QEMU中：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>-device vfio-pci,host<span style=color:#f92672>=</span>0c:00.0,bus<span style=color:#f92672>=</span>swd3
+（至少在我这里是这样）。因此必须先测试出有哪些控制器/控制器组合是不能直通的。</p><p>先看看如何将一个USB控制器分配给客户机：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl><span class=c1># Rebind the controller to vfio-pci</span>
+</span></span><span class=line><span class=cl><span class=nb>echo</span> <span class=s1>&#39;0000:0c:00.0&#39;</span> <span class=p>|</span> sudo tee /sys/bus/pci/drivers/xhci_hcd/unbind
+</span></span><span class=line><span class=cl><span class=nb>echo</span> <span class=s1>&#39;1022 43fc&#39;</span> <span class=p>|</span> sudo tee /sys/bus/pci/drivers/vfio-pci/new_id
+</span></span></code></pre></div><p>然后在QEMU中：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl>-device vfio-pci,host<span class=o>=</span>0c:00.0,bus<span class=o>=</span>swd3
 </span></span></code></pre></div><p>注意unbind时使用的是PCI地址，rebind时使用的是设备ID。<br>然后尝试所有的USB控制器的组合，看看哪些直通给客户机后宿主机还能存活的（调整完后必须启动客户机，只是rebind可能不足以暴露问题）。
-如果是显卡上的USB控制器一般就不需要测试了，因为通常要和GPU一起直通给客户机。<br>现在（以及下面直通GPU时）直接启动虚拟机会遇到权限问题，临时测试使用<code>chmod</code>直接更改权限即可，在实装时会编写udev rules来解决。</p><p>最后我测试出来的可以直通的组合是：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span><span style=color:#75715e>## USB Controller</span>
-</span></span><span style=display:flex><span>echo <span style=color:#e6db74>&#39;0000:0c:00.0&#39;</span> &gt; /sys/bus/pci/drivers/xhci_hcd/unbind
-</span></span><span style=display:flex><span>echo <span style=color:#e6db74>&#39;0000:0f:00.3&#39;</span> &gt; /sys/bus/pci/drivers/xhci_hcd/unbind
-</span></span><span style=display:flex><span>echo <span style=color:#e6db74>&#39;1022 43fc&#39;</span> &gt; /sys/bus/pci/drivers/vfio-pci/new_id
-</span></span><span style=display:flex><span>echo <span style=color:#e6db74>&#39;1022 15b6&#39;</span> &gt; /sys/bus/pci/drivers/vfio-pci/new_id
-</span></span></code></pre></div><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>-device vfio-pci,host<span style=color:#f92672>=</span>0c:00.0,bus<span style=color:#f92672>=</span>swd3
-</span></span><span style=display:flex><span>-device vfio-pci,host<span style=color:#f92672>=</span>0f:00.3,bus<span style=color:#f92672>=</span>swd4
+如果是显卡上的USB控制器一般就不需要测试了，因为通常要和GPU一起直通给客户机。<br>现在（以及下面直通GPU时）直接启动虚拟机会遇到权限问题，临时测试使用<code>chmod</code>直接更改权限即可，在实装时会编写udev rules来解决。</p><p>最后我测试出来的可以直通的组合是：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl><span class=c1>## USB Controller</span>
+</span></span><span class=line><span class=cl><span class=nb>echo</span> <span class=s1>&#39;0000:0c:00.0&#39;</span> &gt; /sys/bus/pci/drivers/xhci_hcd/unbind
+</span></span><span class=line><span class=cl><span class=nb>echo</span> <span class=s1>&#39;0000:0f:00.3&#39;</span> &gt; /sys/bus/pci/drivers/xhci_hcd/unbind
+</span></span><span class=line><span class=cl><span class=nb>echo</span> <span class=s1>&#39;1022 43fc&#39;</span> &gt; /sys/bus/pci/drivers/vfio-pci/new_id
+</span></span><span class=line><span class=cl><span class=nb>echo</span> <span class=s1>&#39;1022 15b6&#39;</span> &gt; /sys/bus/pci/drivers/vfio-pci/new_id
+</span></span></code></pre></div><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl>-device vfio-pci,host<span class=o>=</span>0c:00.0,bus<span class=o>=</span>swd3
+</span></span><span class=line><span class=cl>-device vfio-pci,host<span class=o>=</span>0f:00.3,bus<span class=o>=</span>swd4
 </span></span></code></pre></div><br><p><strong>Hints:</strong></p><ul><li><p>带有ACS补丁的内核可以违反IOMMU Group作为最小直通单元的限制，
 但有<a class=link href=https://vfio.blogspot.com/2014/08/iommu-groups-inside-and-out.html target=_blank rel=noopener>潜在风险</a>。linux-zen内核包含了此补丁。</p></li><li><p>如果你的平台不支持中断重映射，可以在模块参数中添加<code>allow_unsafe_interrupts</code>：</p><pre tabindex=0><code class=language-conf data-lang=conf># /etc/modprobe.d/vfio.conf
 options vfio_iommu_type1 allow_unsafe_interrupts=1
@@ -345,61 +345,61 @@ options vfio-pci disable_idle_d3=1
 options vfio-pci disable_vga=1
 </code></pre><p>先规定vfio-pci模块要在显卡驱动和声卡驱动前加载，然后通过<code>ids</code>指定需要绑定的设备ID，这里指定的是显卡上的GPU和声卡，
 接下来通过禁用D3模式防止设备在reset的时候出现一些奇怪的问题，
-最后这个<code>disable_vga</code>似乎可以防止设备被「VGA Arbitration」，但在我在似乎用处不大。</p><p>接下来配置在启动阶段强制加载vfio-pci驱动：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span><span style=color:#75715e># /etc/mkinitcpio.conf</span>
-</span></span><span style=display:flex><span>MODULES<span style=color:#f92672>=(</span>vfio-pci vfio vfio_iommu_type1<span style=color:#f92672>)</span>
-</span></span><span style=display:flex><span>HOOKS<span style=color:#f92672>=(</span>... modconf ...<span style=color:#f92672>)</span> <span style=color:#75715e># HOOKS中要有modconf</span>
+最后这个<code>disable_vga</code>似乎可以防止设备被「VGA Arbitration」，但在我在似乎用处不大。</p><p>接下来配置在启动阶段强制加载vfio-pci驱动：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl><span class=c1># /etc/mkinitcpio.conf</span>
+</span></span><span class=line><span class=cl><span class=nv>MODULES</span><span class=o>=(</span>vfio-pci vfio vfio_iommu_type1<span class=o>)</span>
+</span></span><span class=line><span class=cl><span class=nv>HOOKS</span><span class=o>=(</span>... modconf ...<span class=o>)</span> <span class=c1># HOOKS中要有modconf</span>
 </span></span></code></pre></div><p>所有此类更改都记得要重新<code>mkinitcpio</code>。</p><p>虽然理论上来说应该也是可以像上面的USB Controller一样进行rebind的，但部分显卡被内核驱动初始化过之后说不定会遇到各种奇怪的reset bug，
-因此在内核驱动初始化设备之前抢占应该是最保险的方式。<br>有条件的可以尝试一下在UEFI中将启动显卡设置为核显，这样能避免UEFI对要直通的显卡进行初始化，从而<del>有几率</del>让虚拟机的UEFI能够正常显示。</p><h3 id=配置-qemu>配置 QEMU</h3><p>使用下面的配置将隔离出的GPU添加到虚拟机中：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>-device vfio-pci,host<span style=color:#f92672>=</span>03:00.0,bus<span style=color:#f92672>=</span>rp2,addr<span style=color:#f92672>=</span>00.0,multifunction<span style=color:#f92672>=</span>on,romfile<span style=color:#f92672>=</span><span style=color:#e6db74>&#34;🤪&#34;</span> <span style=color:#75715e># 稍后揭晓</span>
-</span></span><span style=display:flex><span>-device vfio-pci,host<span style=color:#f92672>=</span>03:00.1,bus<span style=color:#f92672>=</span>rp2,addr<span style=color:#f92672>=</span>00.1
-</span></span><span style=display:flex><span>-device vfio-pci,host<span style=color:#f92672>=</span>03:00.2,bus<span style=color:#f92672>=</span>rp2,addr<span style=color:#f92672>=</span>00.2
-</span></span><span style=display:flex><span>-device vfio-pci,host<span style=color:#f92672>=</span>03:00.3,bus<span style=color:#f92672>=</span>rp2,addr<span style=color:#f92672>=</span>00.3
+因此在内核驱动初始化设备之前抢占应该是最保险的方式。<br>有条件的可以尝试一下在UEFI中将启动显卡设置为核显，这样能避免UEFI对要直通的显卡进行初始化，从而<del>有几率</del>让虚拟机的UEFI能够正常显示。</p><h3 id=配置-qemu>配置 QEMU</h3><p>使用下面的配置将隔离出的GPU添加到虚拟机中：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl>-device vfio-pci,host<span class=o>=</span>03:00.0,bus<span class=o>=</span>rp2,addr<span class=o>=</span>00.0,multifunction<span class=o>=</span>on,romfile<span class=o>=</span><span class=s2>&#34;🤪&#34;</span> <span class=c1># 稍后揭晓</span>
+</span></span><span class=line><span class=cl>-device vfio-pci,host<span class=o>=</span>03:00.1,bus<span class=o>=</span>rp2,addr<span class=o>=</span>00.1
+</span></span><span class=line><span class=cl>-device vfio-pci,host<span class=o>=</span>03:00.2,bus<span class=o>=</span>rp2,addr<span class=o>=</span>00.2
+</span></span><span class=line><span class=cl>-device vfio-pci,host<span class=o>=</span>03:00.3,bus<span class=o>=</span>rp2,addr<span class=o>=</span>00.3
 </span></span></code></pre></div><p>直接将显卡连接到前面的Downstream Port上即可，这里最好使用<code>multifunction</code>模拟真实机器将所有function放在同一个slot中。
-分开来放在不同的slots中可能会导致问题，见Hints。</p><p>然后是虚拟机的其他显示配置：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span><span style=color:#75715e># Display</span>
-</span></span><span style=display:flex><span>-vga none
-</span></span><span style=display:flex><span>-nographic
-</span></span></code></pre></div><p>以上是在实装时候的参数，必须要手动将默认的vga显卡关闭。在安装/测试时建议使用以下参数：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span><span style=color:#75715e># Display</span>
-</span></span><span style=display:flex><span>-vga std
-</span></span><span style=display:flex><span>-display gtk
+分开来放在不同的slots中可能会导致问题，见Hints。</p><p>然后是虚拟机的其他显示配置：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl><span class=c1># Display</span>
+</span></span><span class=line><span class=cl>-vga none
+</span></span><span class=line><span class=cl>-nographic
+</span></span></code></pre></div><p>以上是在实装时候的参数，必须要手动将默认的vga显卡关闭。在安装/测试时建议使用以下参数：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl><span class=c1># Display</span>
+</span></span><span class=line><span class=cl>-vga std
+</span></span><span class=line><span class=cl>-display gtk
 </span></span></code></pre></div><p>注意只有vga显卡是跟PCI直通显卡兼容的。</p><p>接下来还记得前面在配置CPU时的隐藏虚拟化选项吗？现在该它发挥作用了。<br>AMD的Windows驱动程序在检测到虚拟化环境时并不是像隔壁黄狗一样故意禁止你使用，而是会将直通的GPU当作是一块SR-IOV的vGPU。
-<del>隔壁想用这功能还得专门买驱动</del> 然后只会为Windows提供一个虚拟的显示器，并不会产生物理输出，因此需要隐藏虚拟环境。</p><p>然后使用以下命令检查<code>memlock</code>是否有限制：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>ulimit -Hl
+<del>隔壁想用这功能还得专门买驱动</del> 然后只会为Windows提供一个虚拟的显示器，并不会产生物理输出，因此需要隐藏虚拟环境。</p><p>然后使用以下命令检查<code>memlock</code>是否有限制：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl><span class=nb>ulimit</span> -Hl
 </span></span></code></pre></div><p>如果结果不是<code>unlimited</code>，会遇到错误：</p><blockquote><p>failed to setup container for group 20: memory listener initialization failed: Region mem: vfio_container_dma_map</p></blockquote><p>那么还需要修改以下文件来解除运行虚拟机的用户<code>memlock</code>的限制：</p><pre tabindex=0><code class=language-conf data-lang=conf># /etc/security/limits.conf
 windows		-		 memlock		 unlimited
-</code></pre><h3 id=vbios>VBIOS</h3><p><del><em><strong>最精彩的部分</strong></em></del></p><p>大多数GPU都需要向虚拟机传递一个VBIOS以正常工作，尤其是用作启动显卡的GPU。</p><p>除了从TechPowerUp和GPU-Z获取VBIOS外，还可以在Linux上尝试以下方式：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>echo <span style=color:#ae81ff>1</span> | sudo tee /sys/bus/pci/devices/0000:03:00.0/rom
-</span></span><span style=display:flex><span>sudo cat /sys/bus/pci/devices/0000:03:00.0/rom &gt; 7900xt.rom
-</span></span><span style=display:flex><span>echo <span style=color:#ae81ff>0</span> | sudo tee /sys/bus/pci/devices/0000:03:00.0/rom
+</code></pre><h3 id=vbios>VBIOS</h3><p><del><em><strong>最精彩的部分</strong></em></del></p><p>大多数GPU都需要向虚拟机传递一个VBIOS以正常工作，尤其是用作启动显卡的GPU。</p><p>除了从TechPowerUp和GPU-Z获取VBIOS外，还可以在Linux上尝试以下方式：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl><span class=nb>echo</span> <span class=m>1</span> <span class=p>|</span> sudo tee /sys/bus/pci/devices/0000:03:00.0/rom
+</span></span><span class=line><span class=cl>sudo cat /sys/bus/pci/devices/0000:03:00.0/rom &gt; 7900xt.rom
+</span></span><span class=line><span class=cl><span class=nb>echo</span> <span class=m>0</span> <span class=p>|</span> sudo tee /sys/bus/pci/devices/0000:03:00.0/rom
 </span></span></code></pre></div><p>以下2个文件分别是从TechPowerUp下载以及从sysfs提取的：</p><pre tabindex=0><code>252664.rom	7900xt.rom
 </code></pre><p>让我们<code>file</code>一下：</p><pre tabindex=0><code>252664.rom: data
 7900xt.rom: BIOS (ia32) ROM Ext. IBM comp. Video &#34;IBMb\372\334&#34; (113*512) jmp 0x5ffa; at 0x3a8 PCI AMD/ATI device=0x744c PRIOR, ProgIF=3
-</code></pre><p>欸，这俩文件竟然不一样？既然下面那个能识别出文件类型，那VBIOS就一定是它吧🤓</p><p>那就把这个文件传给上面的Arch Linux客户机看看：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>-device vfio-pci,host<span style=color:#f92672>=</span>03:00.0,bus<span style=color:#f92672>=</span>rp2,addr<span style=color:#f92672>=</span>00.0,multifunction<span style=color:#f92672>=</span>on,romfile<span style=color:#f92672>=</span><span style=color:#e6db74>&#34;7900xt.rom&#34;</span>
-</span></span></code></pre></div><p>Oops&mldr; 爆炸了：</p><blockquote><p>qemu: warning: vfio_container_dma_map(0x56261b019040, 0x380810214000, 0x4000, 0x7fb876dc8000) = -14 (错误的地址)<br>0000:03:00.3: PCI peer-to-peer transactions on BARs are not supported.<br>qemu: vfio: Error: Failed to setup MSI fds: 无效的参数<br>qemu: vfio: Error: Failed to enable MSI<br>error: kvm run failed 错误的地址<br>RAX=ffffffff92ffa5a0 RBX=ffff8e9985802000 RCX=0000000000000000 RDX=ffffd0c381c976b0<br>RSI=ffffd0c3807a4034 RDI=ffff8e998581a828 RBP=0000000000000034 RSP=ffffd0c381c97660<br>R8 =0000000000000002 R9 =0000000000000000 R10=0000000000000040 R11=0000000000000001<br>R12=ffffd0c381c976b0 R13=ffff8e998581a828 R14=0000000000000000 R15=0000000000000000<br>RIP=ffffffff92ffa5af RFL=00000282 [&ndash;S&mdash;-] CPL=0 II=0 A20=1 SMM=0 HLT=0<br>ES =0000 0000000000000000 00000000 00000000<br>CS =0010 0000000000000000 ffffffff 00a09b00 DPL=0 CS64 [-RA]<br>SS =0018 0000000000000000 ffffffff 00c09300 DPL=0 DS [-WA]<br>DS =0000 0000000000000000 00000000 00000000<br>FS =0000 00007fb361cde880 00000000 00000000<br>GS =0000 ffff8ea04e749000 00000000 00000000<br>LDT=0000 0000000000000000 00000000 00000000<br>TR =0040 fffffe03e75ef000 00004087 00008b00 DPL=0 TSS64-busy<br>GDT= fffffe03e75ed000 0000007f<br>IDT= fffffe0000000000 00000fff<br>CR0=80050033 CR2=00007fb35fd8d2db CR3=000000011045b000 CR4=00750ef0<br>DR0=0000000000000000 DR1=0000000000000000 DR2=0000000000000000 DR3=0000000000000000<br>DR6=00000000ffff0ff0 DR7=0000000000000400<br>EFER=0000000000200d01<br>Code=90 90 90 90 90 f3 0f 1e fa 0f 1f 44 00 00 89 f6 48 03 77 18 &lt;8b> 06 89 02 31 c0 c3 cc cc cc cc 66 0f 1f 44 00 00 90 90 90 90 90 90 90 90 90 90 90 90 90</p></blockquote><p>那重启一下再看看？</p><blockquote><p>qemu-system-x86_64: ../qemu-10.1.2/hw/pci/pci.c:1815: pci_irq_handler: Assertion `0 &lt;= irq_num && irq_num &lt; PCI_NUM_PINS&rsquo; failed.</p></blockquote><p>&mldr;&mldr;好的，恭喜你，现在显卡的状态已经彻底corrupted了🫨，只能重启宿主机。<del>联发科打过来了？</del></p><p>再试试从TechPowerUp下载的VBIOS呢？</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>-device vfio-pci,host<span style=color:#f92672>=</span>03:00.0,bus<span style=color:#f92672>=</span>rp2,addr<span style=color:#f92672>=</span>00.0,multifunction<span style=color:#f92672>=</span>on,romfile<span style=color:#f92672>=</span><span style=color:#e6db74>&#34;252664.rom&#34;</span>
+</code></pre><p>欸，这俩文件竟然不一样？既然下面那个能识别出文件类型，那VBIOS就一定是它吧🤓</p><p>那就把这个文件传给上面的Arch Linux客户机看看：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl>-device vfio-pci,host<span class=o>=</span>03:00.0,bus<span class=o>=</span>rp2,addr<span class=o>=</span>00.0,multifunction<span class=o>=</span>on,romfile<span class=o>=</span><span class=s2>&#34;7900xt.rom&#34;</span>
+</span></span></code></pre></div><p>Oops&mldr; 爆炸了：</p><blockquote><p>qemu: warning: vfio_container_dma_map(0x56261b019040, 0x380810214000, 0x4000, 0x7fb876dc8000) = -14 (错误的地址)<br>0000:03:00.3: PCI peer-to-peer transactions on BARs are not supported.<br>qemu: vfio: Error: Failed to setup MSI fds: 无效的参数<br>qemu: vfio: Error: Failed to enable MSI<br>error: kvm run failed 错误的地址<br>RAX=ffffffff92ffa5a0 RBX=ffff8e9985802000 RCX=0000000000000000 RDX=ffffd0c381c976b0<br>RSI=ffffd0c3807a4034 RDI=ffff8e998581a828 RBP=0000000000000034 RSP=ffffd0c381c97660<br>R8 =0000000000000002 R9 =0000000000000000 R10=0000000000000040 R11=0000000000000001<br>R12=ffffd0c381c976b0 R13=ffff8e998581a828 R14=0000000000000000 R15=0000000000000000<br>RIP=ffffffff92ffa5af RFL=00000282 [&ndash;S&mdash;-] CPL=0 II=0 A20=1 SMM=0 HLT=0<br>ES =0000 0000000000000000 00000000 00000000<br>CS =0010 0000000000000000 ffffffff 00a09b00 DPL=0 CS64 [-RA]<br>SS =0018 0000000000000000 ffffffff 00c09300 DPL=0 DS [-WA]<br>DS =0000 0000000000000000 00000000 00000000<br>FS =0000 00007fb361cde880 00000000 00000000<br>GS =0000 ffff8ea04e749000 00000000 00000000<br>LDT=0000 0000000000000000 00000000 00000000<br>TR =0040 fffffe03e75ef000 00004087 00008b00 DPL=0 TSS64-busy<br>GDT= fffffe03e75ed000 0000007f<br>IDT= fffffe0000000000 00000fff<br>CR0=80050033 CR2=00007fb35fd8d2db CR3=000000011045b000 CR4=00750ef0<br>DR0=0000000000000000 DR1=0000000000000000 DR2=0000000000000000 DR3=0000000000000000<br>DR6=00000000ffff0ff0 DR7=0000000000000400<br>EFER=0000000000200d01<br>Code=90 90 90 90 90 f3 0f 1e fa 0f 1f 44 00 00 89 f6 48 03 77 18 &lt;8b> 06 89 02 31 c0 c3 cc cc cc cc 66 0f 1f 44 00 00 90 90 90 90 90 90 90 90 90 90 90 90 90</p></blockquote><p>那重启一下再看看？</p><blockquote><p>qemu-system-x86_64: ../qemu-10.1.2/hw/pci/pci.c:1815: pci_irq_handler: Assertion `0 &lt;= irq_num && irq_num &lt; PCI_NUM_PINS&rsquo; failed.</p></blockquote><p>&mldr;&mldr;好的，恭喜你，现在显卡的状态已经彻底corrupted了🫨，只能重启宿主机。<del>联发科打过来了？</del></p><p>再试试从TechPowerUp下载的VBIOS呢？</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl>-device vfio-pci,host<span class=o>=</span>03:00.0,bus<span class=o>=</span>rp2,addr<span class=o>=</span>00.0,multifunction<span class=o>=</span>on,romfile<span class=o>=</span><span class=s2>&#34;252664.rom&#34;</span>
 </span></span></code></pre></div><p>Hummm&mldr; 看起来正常启动了，Linux也能够认到显卡，甚至Hyprland都能够正常启动并输出。<br>万事大吉了吗？Linux提取的固件有问题？<br>仔细看一下启动日志可以发现：</p><blockquote><p>Dec 28 05:23:21 archlinux kernel: amdgpu 0000:00:04.0: Invalid PCI ROM header signature: expecting 0xaa55, got 0x0000</p></blockquote><p>WTF？我们的VBIOS由于格式不正确压根就没有被加载！</p><p>🤔&mldr; 那这究竟是怎么回事呢？<br>以下是我的个人理解，原文在<a class=link href=https://forum.level1techs.com/t/the-state-of-amd-rx-7000-series-vfio-passthrough-april-2024/210242 target=_blank rel=noopener>这里</a>。</p><p>由于显卡在启动时已经被宿主机的UEFI初始化了一次，如果再在虚拟机中被UEFI初始化一次会损坏其内部状态，导致显卡无法正常使用
 （但我更改了启动显卡似乎也没法解决）。
 因此防止显卡被UEFI再次初始化的方式就是提供一个错误的VBIOS或者关闭ROM BAR。<br>还记得在ArchWiki页面说一般Nvidia的VBIOS提取出来后需要去除文件头直至0xaa55为文件开头吗？
 如果我们使用<code>od</code>查看上面的两个ROM文件应该能够发现从sysfs下提取的VBIOS确实是符合格式的，而下载的反而是格式错误的。
 进一步查看binary可以发现很多<code>7900xt.rom</code>的片段都可以在<code>252664.rom</code>中找到。实际上后者应该就是前者再加上<code>linux-firmware-amdgpu</code>中的固件，
-但没有遵循VBIOS的标准格式，导致虚拟机无法使用VBIOS。这也和启动日志中的信息一致。</p><p>所以，其实只要故意提供一个错误的VBIOS就好了：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>dd <span style=color:#66d9ef>if</span><span style=color:#f92672>=</span>/dev/zero of<span style=color:#f92672>=</span>dummy.rom bs<span style=color:#f92672>=</span>1M count<span style=color:#f92672>=</span><span style=color:#ae81ff>1</span>
-</span></span></code></pre></div><p>然后加载到QEMU：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>-device vfio-pci,host<span style=color:#f92672>=</span>03:00.0,bus<span style=color:#f92672>=</span>rp2,addr<span style=color:#f92672>=</span>00.0,multifunction<span style=color:#f92672>=</span>on,romfile<span style=color:#f92672>=</span><span style=color:#e6db74>&#34;dummy.rom&#34;</span>
+但没有遵循VBIOS的标准格式，导致虚拟机无法使用VBIOS。这也和启动日志中的信息一致。</p><p>所以，其实只要故意提供一个错误的VBIOS就好了：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl>dd <span class=k>if</span><span class=o>=</span>/dev/zero <span class=nv>of</span><span class=o>=</span>dummy.rom <span class=nv>bs</span><span class=o>=</span>1M <span class=nv>count</span><span class=o>=</span><span class=m>1</span>
+</span></span></code></pre></div><p>然后加载到QEMU：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl>-device vfio-pci,host<span class=o>=</span>03:00.0,bus<span class=o>=</span>rp2,addr<span class=o>=</span>00.0,multifunction<span class=o>=</span>on,romfile<span class=o>=</span><span class=s2>&#34;dummy.rom&#34;</span>
 </span></span></code></pre></div><p>理论上应该不提供VBIOS或者用TechPowerUp的也可以，但据说这样更稳定。</p><p><strong>Hints:</strong></p><ul><li><p>上面显卡状态的corruption在经过测试后似乎只在以下两种情况复现：</p><ul><li>没有使用<code>modprobe.d</code>将声卡在驱动<code>snd_hda_intel</code>前绑定，且未启用PCIe的multifunction并使用从sysfs提取的VBIOS。</li><li>在内核启动参数中添加<code>video=vesafb:off video=efifb:off video=simplefb:off</code>后使用从sysfs提取的VBIOS。</li></ul><p>除了其余正常工作的情况外，剩下的表现就是Linux启动时会出现大量<code>DMCUB Error</code>且没有显示信号输出。<br>在没有启用multifunction时，journal中会出现以下信息：</p><blockquote><p>Dec 28 06:53:25 archlinux kernel: amdgpu 0000:00:05.0: amdgpu: System can&rsquo;t access extended configuration space, please check!!</p></blockquote><p>因此我的<del>瞎猜</del>推测是：在没有启用multifunction时，显卡直接连接到了根总线上，导致被认为这是一个RCiEP的PCI设备，
-从而依赖传入的VBIOS对显卡进行重新初始化，然后就寄了。</p></li><li><p>如果显卡遇到了Reset Bug，可以看看项目<a class=link href=https://github.com/gnif/vendor-reset target=_blank rel=noopener>vendor-reset</a>中是否有自己的显卡。</p></li><li><p>不少网上的指南都有说要在宿主机的BIOS中关闭Resizable BAR，但在我这套平台下开启也可以正常运行，如遇问题可以关闭。</p></li><li><p>看到有不少在参数中添加<code>x-vga=on</code>的，但似乎这只是一个针对Nvidia GPU的fix，添加后会直接报错。</p></li></ul><h2 id=安全启动>安全启动</h2><p>对于那些并没有将微软证书enroll到NVRAM模板文件中的发行版，例如Arch Linux，需要使用以下步骤手动注册证书并开启secure boot。</p><h3 id=生成-pk-platform-key>生成 PK (Platform Key)</h3><p>先使用<code>openssl</code>生成一对密钥：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>openssl req -newkey rsa:4096 -nodes -keyout private.key -x509 -days <span style=color:#ae81ff>3650</span> -out pk.crt
-</span></span></code></pre></div><p>本地使用，DN字段随便填写即可。其中private.key为私钥，pk.crt为公钥。</p><p>然后将PEM证书转换为DER证书：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>openssl x509 -in pk.crt -outform der -out pk.der
+从而依赖传入的VBIOS对显卡进行重新初始化，然后就寄了。</p></li><li><p>如果显卡遇到了Reset Bug，可以看看项目<a class=link href=https://github.com/gnif/vendor-reset target=_blank rel=noopener>vendor-reset</a>中是否有自己的显卡。</p></li><li><p>不少网上的指南都有说要在宿主机的BIOS中关闭Resizable BAR，但在我这套平台下开启也可以正常运行，如遇问题可以关闭。</p></li><li><p>看到有不少在参数中添加<code>x-vga=on</code>的，但似乎这只是一个针对Nvidia GPU的fix，添加后会直接报错。</p></li></ul><h2 id=安全启动>安全启动</h2><p>对于那些并没有将微软证书enroll到NVRAM模板文件中的发行版，例如Arch Linux，需要使用以下步骤手动注册证书并开启secure boot。</p><h3 id=生成-pk-platform-key>生成 PK (Platform Key)</h3><p>先使用<code>openssl</code>生成一对密钥：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl>openssl req -newkey rsa:4096 -nodes -keyout private.key -x509 -days <span class=m>3650</span> -out pk.crt
+</span></span></code></pre></div><p>本地使用，DN字段随便填写即可。其中private.key为私钥，pk.crt为公钥。</p><p>然后将PEM证书转换为DER证书：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl>openssl x509 -in pk.crt -outform der -out pk.der
 </span></span></code></pre></div><p>生成的pk.der就是可以被enroll的证书。</p><h3 id=获取-microsoft-证书>获取 Microsoft 证书</h3><p>KEK (Key Exchange Key): <a class=link href="https://go.microsoft.com/fwlink/p/?linkid=321185" target=_blank rel=noopener>Microsoft Corporation KEK CA 2011</a><br>DB (Allowed Signature database): <a class=link href="https://go.microsoft.com/fwlink/?LinkId=321192" target=_blank rel=noopener>Microsoft Windows Production CA 2011</a>,
 <a class=link href="https://go.microsoft.com/fwlink/p/?LinkID=321194" target=_blank rel=noopener>Microsoft Corporation UEFI CA 2011</a></p><h3 id=注册证书并启用安全启动>注册证书并启用安全启动</h3><p>现在你应该有下面这些文件：</p><pre tabindex=0><code>MicCorKEKCA2011_2011-06-24.crt		MicCorUEFCA2011_2011-06-27.crt		MicWinProPCA2011_2011-10-19.crt
 pk.crt								nvram.fd
-</code></pre><p>然后使用以下命令将证书写入NVRAM：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>MS_GUID<span style=color:#f92672>=</span>77fa9abd-0359-4d32-bd60-28f4e78f784b		 	<span style=color:#ae81ff>\
-</span></span></span><span style=display:flex><span>	virt-fw-vars										<span style=color:#ae81ff>\
-</span></span></span><span style=display:flex><span>	-i nvram.fd -o nvram_sec.fd							<span style=color:#ae81ff>\
-</span></span></span><span style=display:flex><span>	--set-pk <span style=color:#66d9ef>$(</span>uuidgen<span style=color:#66d9ef>)</span> pk.der 							<span style=color:#ae81ff>\
-</span></span></span><span style=display:flex><span>	--add-kek <span style=color:#66d9ef>$(</span>MS_GUID<span style=color:#66d9ef>)</span> MicCorKEKCA2011_2011-06-24.crt <span style=color:#ae81ff>\
-</span></span></span><span style=display:flex><span>	--add-db <span style=color:#66d9ef>$(</span>MS_GUID<span style=color:#66d9ef>)</span> MicCorUEFCA2011_2011-06-27.crt 	<span style=color:#ae81ff>\
-</span></span></span><span style=display:flex><span>	--add-db <span style=color:#66d9ef>$(</span>MS_GUID<span style=color:#66d9ef>)</span> MicWinProPCA2011_2011-10-19.crt <span style=color:#ae81ff>\
-</span></span></span><span style=display:flex><span>	--sb
+</code></pre><p>然后使用以下命令将证书写入NVRAM：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl><span class=nv>MS_GUID</span><span class=o>=</span>77fa9abd-0359-4d32-bd60-28f4e78f784b		 	<span class=se>\
+</span></span></span><span class=line><span class=cl>	virt-fw-vars										<span class=se>\
+</span></span></span><span class=line><span class=cl>	-i nvram.fd -o nvram_sec.fd							<span class=se>\
+</span></span></span><span class=line><span class=cl>	--set-pk <span class=k>$(</span>uuidgen<span class=k>)</span> pk.der 							<span class=se>\
+</span></span></span><span class=line><span class=cl>	--add-kek <span class=k>$(</span>MS_GUID<span class=k>)</span> MicCorKEKCA2011_2011-06-24.crt <span class=se>\
+</span></span></span><span class=line><span class=cl>	--add-db <span class=k>$(</span>MS_GUID<span class=k>)</span> MicCorUEFCA2011_2011-06-27.crt 	<span class=se>\
+</span></span></span><span class=line><span class=cl>	--add-db <span class=k>$(</span>MS_GUID<span class=k>)</span> MicWinProPCA2011_2011-10-19.crt <span class=se>\
+</span></span></span><span class=line><span class=cl>	--sb
 </span></span></code></pre></div><p>将输出的<code>nvram_sec.fd</code>用作NVRAM启动客户机，安全启动应该能正常开启。</p><h2 id=配置目标系统>配置目标系统</h2><p>接下来就是将安装调试好的虚拟机部署到目标系统上。<br>虚拟机进程将以非特权用户在目标机器上运行，并能够实现宿主机启动自动运行，客户机正常关闭时宿主机自动关机。
-这里使用systemd的user units来实现，请根据自己的需求进行调整。</p><p>先看看最小目标系统需要哪些软件包：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>sudo pacstrap -K /mnt base linux							<span style=color:#ae81ff>\
-</span></span></span><span style=display:flex><span>	amd-ucode linux-firmware-amdgpu linux-firmware-mediatek	<span style=color:#ae81ff>\
-</span></span></span><span style=display:flex><span>	lvm2 btrfs-progs qemu-img								<span style=color:#ae81ff>\
-</span></span></span><span style=display:flex><span>	networkmanager dnsmasq openssh							<span style=color:#ae81ff>\
-</span></span></span><span style=display:flex><span>	qemu-system-x86 swtpm usbutils							<span style=color:#ae81ff>\
-</span></span></span><span style=display:flex><span>	vim less bash-completion terminus-font sudo
+这里使用systemd的user units来实现，请根据自己的需求进行调整。</p><p>先看看最小目标系统需要哪些软件包：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl>sudo pacstrap -K /mnt base linux							<span class=se>\
+</span></span></span><span class=line><span class=cl>	amd-ucode linux-firmware-amdgpu linux-firmware-mediatek	<span class=se>\
+</span></span></span><span class=line><span class=cl>	lvm2 btrfs-progs qemu-img								<span class=se>\
+</span></span></span><span class=line><span class=cl>	networkmanager dnsmasq openssh							<span class=se>\
+</span></span></span><span class=line><span class=cl>	qemu-system-x86 swtpm usbutils							<span class=se>\
+</span></span></span><span class=line><span class=cl>	vim less bash-completion terminus-font sudo
 </span></span></code></pre></div><p>然后将文件部署到运行虚拟机的<code>windows</code>用户的家目录下：</p><pre tabindex=0><code>.
 ├── firmware
 │   ├── dummy.rom
@@ -410,182 +410,182 @@ pk.crt								nvram.fd
     ├── rootfs.qcow2
     ├── virtio-win.iso
     └── Windows10-21H2-LTSC-IoT.iso
-</code></pre><p>其中<code>tpm2-00.permall</code>会由swtpm自动创建。<br>新系统需要的基本配置文件以及前面提及的用于VFIO直通的各种配置文件不再赘述，下面主要说明新增的文件。</p><h3 id=udev-rules>Udev Rules</h3><p>由于虚拟机进程是以非特权用户身份运行的，因此需要使用udev改变一些设备文件的权限：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span><span style=color:#75715e># /etc/udev/rules.d/99-qemu.rules</span>
-</span></span><span style=display:flex><span>SUBSYSTEM<span style=color:#f92672>==</span><span style=color:#e6db74>&#34;vfio&#34;</span>, OWNER<span style=color:#f92672>=</span><span style=color:#e6db74>&#34;qemu&#34;</span>, GROUP<span style=color:#f92672>=</span><span style=color:#e6db74>&#34;qemu&#34;</span>, MODE<span style=color:#f92672>=</span><span style=color:#e6db74>&#34;0660&#34;</span>
-</span></span><span style=display:flex><span>SUBSYSTEM<span style=color:#f92672>==</span><span style=color:#e6db74>&#34;block&#34;</span>, ENV<span style=color:#f92672>{</span>DM_NAME<span style=color:#f92672>}==</span><span style=color:#e6db74>&#34;Data-windows&#34;</span>, OWNER<span style=color:#f92672>=</span><span style=color:#e6db74>&#34;qemu&#34;</span>, GROUP<span style=color:#f92672>=</span><span style=color:#e6db74>&#34;qemu&#34;</span>, MODE<span style=color:#f92672>=</span><span style=color:#e6db74>&#34;0660&#34;</span>
-</span></span></code></pre></div><p>由于udev不允许设备文件的所有者为非系统用户，因此将owner和group改为qemu，让非特权用户加入这个组就行。</p><h3 id=dynamic-rebindservice>dynamic-rebind.service</h3><p>前面在调试虚拟机的时候是手动对设备进行rebind的，这里使用systemd service使其能够实现开机自动rebind。</p><p>那你可能就要问了，为什么不像rebind GPU时一样使用/etc/modprobe.d来提前加载vfio驱动？<br>这个因不同内核而异。能够先于设备驱动模块提前加载VFIO的前提是得有设备驱动模块🤪<br>你可以使用这条命令来验证一下：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>zgrep -e DESIGNWARE_PCI -e XHCI_HCD /proc/config.gz
+</code></pre><p>其中<code>tpm2-00.permall</code>会由swtpm自动创建。<br>新系统需要的基本配置文件以及前面提及的用于VFIO直通的各种配置文件不再赘述，下面主要说明新增的文件。</p><h3 id=udev-rules>Udev Rules</h3><p>由于虚拟机进程是以非特权用户身份运行的，因此需要使用udev改变一些设备文件的权限：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl><span class=c1># /etc/udev/rules.d/99-qemu.rules</span>
+</span></span><span class=line><span class=cl><span class=nv>SUBSYSTEM</span><span class=o>==</span><span class=s2>&#34;vfio&#34;</span>, <span class=nv>OWNER</span><span class=o>=</span><span class=s2>&#34;qemu&#34;</span>, <span class=nv>GROUP</span><span class=o>=</span><span class=s2>&#34;qemu&#34;</span>, <span class=nv>MODE</span><span class=o>=</span><span class=s2>&#34;0660&#34;</span>
+</span></span><span class=line><span class=cl><span class=nv>SUBSYSTEM</span><span class=o>==</span><span class=s2>&#34;block&#34;</span>, ENV<span class=o>{</span>DM_NAME<span class=o>}==</span><span class=s2>&#34;Data-windows&#34;</span>, <span class=nv>OWNER</span><span class=o>=</span><span class=s2>&#34;qemu&#34;</span>, <span class=nv>GROUP</span><span class=o>=</span><span class=s2>&#34;qemu&#34;</span>, <span class=nv>MODE</span><span class=o>=</span><span class=s2>&#34;0660&#34;</span>
+</span></span></code></pre></div><p>由于udev不允许设备文件的所有者为非系统用户，因此将owner和group改为qemu，让非特权用户加入这个组就行。</p><h3 id=dynamic-rebindservice>dynamic-rebind.service</h3><p>前面在调试虚拟机的时候是手动对设备进行rebind的，这里使用systemd service使其能够实现开机自动rebind。</p><p>那你可能就要问了，为什么不像rebind GPU时一样使用/etc/modprobe.d来提前加载vfio驱动？<br>这个因不同内核而异。能够先于设备驱动模块提前加载VFIO的前提是得有设备驱动模块🤪<br>你可以使用这条命令来验证一下：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl>zgrep -e DESIGNWARE_PCI -e XHCI_HCD /proc/config.gz
 </span></span></code></pre></div><p>如果你的输出是像下面这样的两个y：</p><pre tabindex=0><code>CONFIG_I2C_DESIGNWARE_PCI=y
 CONFIG_USB_XHCI_HCD=y
 </code></pre><p>那么恭喜你，你只能进行dynamic rebind。<br>原理很简单：内核模块的加载是在内核初始化完成后由systemd进行的。但内核在初始化过程中就会初始化设备并绑定驱动，
-如果某个设备驱动不是模块的话，其在systemd之前就已经被绑定了。</p><p>使用下面的systemd service进行rebind：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-ini data-lang=ini><span style=display:flex><span><span style=color:#75715e># /etc/systemd/system/dynamic-rebind.service</span>
-</span></span><span style=display:flex><span><span style=color:#66d9ef>[Unit]</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>Description</span><span style=color:#f92672>=</span><span style=color:#e6db74>Rebind USB Controller and I2C Bus to vfio</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>DefaultDependencies</span><span style=color:#f92672>=</span><span style=color:#e6db74>no</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>Before</span><span style=color:#f92672>=</span><span style=color:#e6db74>systemd-udevd.service</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>After</span><span style=color:#f92672>=</span><span style=color:#e6db74>systemd-modules-load.service</span>
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span><span style=color:#66d9ef>[Service]</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>Type</span><span style=color:#f92672>=</span><span style=color:#e6db74>oneshot</span>
-</span></span><span style=display:flex><span><span style=color:#75715e># USB Controller</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>ExecStart</span><span style=color:#f92672>=</span><span style=color:#e6db74>/usr/bin/bash -c &#39;echo &#34;0000:0c:00.0&#34; &gt; /sys/bus/pci/drivers/xhci_hcd/unbind&#39;</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>ExecStart</span><span style=color:#f92672>=</span><span style=color:#e6db74>/usr/bin/bash -c &#39;echo &#34;0000:0f:00.3&#34; &gt; /sys/bus/pci/drivers/xhci_hcd/unbind&#39;</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>ExecStart</span><span style=color:#f92672>=</span><span style=color:#e6db74>/usr/bin/bash -c &#39;echo &#34;1022 43fc&#34; &gt; /sys/bus/pci/drivers/vfio-pci/new_id&#39;</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>ExecStart</span><span style=color:#f92672>=</span><span style=color:#e6db74>/usr/bin/bash -c &#39;echo &#34;1022 15b6&#34; &gt; /sys/bus/pci/drivers/vfio-pci/new_id&#39;</span>
-</span></span><span style=display:flex><span><span style=color:#75715e># RX 7900XT</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>ExecStart</span><span style=color:#f92672>=</span><span style=color:#e6db74>/usr/bin/bash -c &#39;echo &#34;0000:03:00.2&#34; &gt; /sys/bus/pci/drivers/xhci_hcd/unbind&#39;</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>ExecStart</span><span style=color:#f92672>=</span><span style=color:#e6db74>/usr/bin/bash -c &#39;echo &#34;0000:03:00.3&#34; &gt; /sys/bus/pci/drivers/i2c-designware-pci/unbind&#39;</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>ExecStart</span><span style=color:#f92672>=</span><span style=color:#e6db74>/usr/bin/bash -c &#39;echo &#34;1002 7446&#34; &gt; /sys/bus/pci/drivers/vfio-pci/new_id&#39;</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>ExecStart</span><span style=color:#f92672>=</span><span style=color:#e6db74>/usr/bin/bash -c &#39;echo &#34;1002 7444&#34; &gt; /sys/bus/pci/drivers/vfio-pci/new_id&#39;</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>RemainAfterExit</span><span style=color:#f92672>=</span><span style=color:#e6db74>yes</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>Restart</span><span style=color:#f92672>=</span><span style=color:#e6db74>no</span>
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span><span style=color:#66d9ef>[Install]</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>WantedBy</span><span style=color:#f92672>=</span><span style=color:#e6db74>sysinit.target</span>
-</span></span></code></pre></div><p>值得注意的是这个service的执行时机应该尽可能早，最好在udevd开始之前就执行完成，否则会和udevd发生racing，导致journal里一堆error。<br>还有就是systemd的命令行不支持shell的<code>| > >></code>等运算符，需要像这样使用<code>sh -c</code>的方式实现。</p><h3 id=swtpmservice>swtpm.service</h3><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-ini data-lang=ini><span style=display:flex><span><span style=color:#75715e># /home/windows/.config/systemd/user/swtpm.service</span>
-</span></span><span style=display:flex><span><span style=color:#66d9ef>[Unit]</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>Description</span><span style=color:#f92672>=</span><span style=color:#e6db74>TPM2 Emulator for QEMU</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>After</span><span style=color:#f92672>=</span><span style=color:#e6db74>multi-user.target</span>
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span><span style=color:#66d9ef>[Service]</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>Type</span><span style=color:#f92672>=</span><span style=color:#e6db74>simple</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>ExecStart</span><span style=color:#f92672>=</span><span style=color:#e6db74>/usr/bin/swtpm socket --tpm2 --tpmstate dir=&#34;${HOME}/firmware&#34; --ctrl type=unixio,path=&#34;${XDG_RUNTIME_DIR}/tpm_sock&#34;</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>Restart</span><span style=color:#f92672>=</span><span style=color:#e6db74>on-abnormal</span>
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span><span style=color:#66d9ef>[Install]</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>WantedBy</span><span style=color:#f92672>=</span><span style=color:#e6db74>default.target</span>
-</span></span></code></pre></div><p>不需要加入<code>--terminate</code>参数，以便于qemu重启时能够再次连接。</p><h3 id=windowsservice>windows.service</h3><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-ini data-lang=ini><span style=display:flex><span><span style=color:#75715e># /home/windows/.config/systemd/user/windows.service</span>
-</span></span><span style=display:flex><span><span style=color:#66d9ef>[Unit]</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>Description</span><span style=color:#f92672>=</span><span style=color:#e6db74>A QEMU service runs the Windows virtual machine</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>Requires</span><span style=color:#f92672>=</span><span style=color:#e6db74>swtpm.service</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>After</span><span style=color:#f92672>=</span><span style=color:#e6db74>swtpm.service</span>
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span><span style=color:#66d9ef>[Service]</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>Type</span><span style=color:#f92672>=</span><span style=color:#e6db74>simple</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>ExecStartPre</span><span style=color:#f92672>=</span><span style=color:#e6db74>/usr/bin/echo &#39;Note: Touch a file named /tmp/no-shutdown to prevent auto shutdown&#39;</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>ExecStart</span><span style=color:#f92672>=</span><span style=color:#e6db74>%h/qemu.sh</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>ExecStopPost</span><span style=color:#f92672>=</span><span style=color:#e6db74>/usr/bin/bash -c &#39;if [ &#34;$SERVICE_RESULT&#34; = &#34;success&#34; ] &amp;&amp; [ ! -f /tmp/no-shutdown ]; then systemctl poweroff --no-ask-password; else echo &#34;VM crashed or /tmp/no-shutdown detected, skipping poweroff&#34;; fi&#39;</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>Restart</span><span style=color:#f92672>=</span><span style=color:#e6db74>on-abnormal</span>
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span><span style=color:#66d9ef>[Install]</span>
-</span></span><span style=display:flex><span><span style=color:#a6e22e>WantedBy</span><span style=color:#f92672>=</span><span style=color:#e6db74>default.target</span>
+如果某个设备驱动不是模块的话，其在systemd之前就已经被绑定了。</p><p>使用下面的systemd service进行rebind：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-ini data-lang=ini><span class=line><span class=cl><span class=c1># /etc/systemd/system/dynamic-rebind.service</span>
+</span></span><span class=line><span class=cl><span class=k>[Unit]</span>
+</span></span><span class=line><span class=cl><span class=na>Description</span><span class=o>=</span><span class=s>Rebind USB Controller and I2C Bus to vfio</span>
+</span></span><span class=line><span class=cl><span class=na>DefaultDependencies</span><span class=o>=</span><span class=s>no</span>
+</span></span><span class=line><span class=cl><span class=na>Before</span><span class=o>=</span><span class=s>systemd-udevd.service</span>
+</span></span><span class=line><span class=cl><span class=na>After</span><span class=o>=</span><span class=s>systemd-modules-load.service</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=k>[Service]</span>
+</span></span><span class=line><span class=cl><span class=na>Type</span><span class=o>=</span><span class=s>oneshot</span>
+</span></span><span class=line><span class=cl><span class=c1># USB Controller</span>
+</span></span><span class=line><span class=cl><span class=na>ExecStart</span><span class=o>=</span><span class=s>/usr/bin/bash -c &#39;echo &#34;0000:0c:00.0&#34; &gt; /sys/bus/pci/drivers/xhci_hcd/unbind&#39;</span>
+</span></span><span class=line><span class=cl><span class=na>ExecStart</span><span class=o>=</span><span class=s>/usr/bin/bash -c &#39;echo &#34;0000:0f:00.3&#34; &gt; /sys/bus/pci/drivers/xhci_hcd/unbind&#39;</span>
+</span></span><span class=line><span class=cl><span class=na>ExecStart</span><span class=o>=</span><span class=s>/usr/bin/bash -c &#39;echo &#34;1022 43fc&#34; &gt; /sys/bus/pci/drivers/vfio-pci/new_id&#39;</span>
+</span></span><span class=line><span class=cl><span class=na>ExecStart</span><span class=o>=</span><span class=s>/usr/bin/bash -c &#39;echo &#34;1022 15b6&#34; &gt; /sys/bus/pci/drivers/vfio-pci/new_id&#39;</span>
+</span></span><span class=line><span class=cl><span class=c1># RX 7900XT</span>
+</span></span><span class=line><span class=cl><span class=na>ExecStart</span><span class=o>=</span><span class=s>/usr/bin/bash -c &#39;echo &#34;0000:03:00.2&#34; &gt; /sys/bus/pci/drivers/xhci_hcd/unbind&#39;</span>
+</span></span><span class=line><span class=cl><span class=na>ExecStart</span><span class=o>=</span><span class=s>/usr/bin/bash -c &#39;echo &#34;0000:03:00.3&#34; &gt; /sys/bus/pci/drivers/i2c-designware-pci/unbind&#39;</span>
+</span></span><span class=line><span class=cl><span class=na>ExecStart</span><span class=o>=</span><span class=s>/usr/bin/bash -c &#39;echo &#34;1002 7446&#34; &gt; /sys/bus/pci/drivers/vfio-pci/new_id&#39;</span>
+</span></span><span class=line><span class=cl><span class=na>ExecStart</span><span class=o>=</span><span class=s>/usr/bin/bash -c &#39;echo &#34;1002 7444&#34; &gt; /sys/bus/pci/drivers/vfio-pci/new_id&#39;</span>
+</span></span><span class=line><span class=cl><span class=na>RemainAfterExit</span><span class=o>=</span><span class=s>yes</span>
+</span></span><span class=line><span class=cl><span class=na>Restart</span><span class=o>=</span><span class=s>no</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=k>[Install]</span>
+</span></span><span class=line><span class=cl><span class=na>WantedBy</span><span class=o>=</span><span class=s>sysinit.target</span>
+</span></span></code></pre></div><p>值得注意的是这个service的执行时机应该尽可能早，最好在udevd开始之前就执行完成，否则会和udevd发生racing，导致journal里一堆error。<br>还有就是systemd的命令行不支持shell的<code>| > >></code>等运算符，需要像这样使用<code>sh -c</code>的方式实现。</p><h3 id=swtpmservice>swtpm.service</h3><div class=highlight><pre tabindex=0 class=chroma><code class=language-ini data-lang=ini><span class=line><span class=cl><span class=c1># /home/windows/.config/systemd/user/swtpm.service</span>
+</span></span><span class=line><span class=cl><span class=k>[Unit]</span>
+</span></span><span class=line><span class=cl><span class=na>Description</span><span class=o>=</span><span class=s>TPM2 Emulator for QEMU</span>
+</span></span><span class=line><span class=cl><span class=na>After</span><span class=o>=</span><span class=s>multi-user.target</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=k>[Service]</span>
+</span></span><span class=line><span class=cl><span class=na>Type</span><span class=o>=</span><span class=s>simple</span>
+</span></span><span class=line><span class=cl><span class=na>ExecStart</span><span class=o>=</span><span class=s>/usr/bin/swtpm socket --tpm2 --tpmstate dir=&#34;${HOME}/firmware&#34; --ctrl type=unixio,path=&#34;${XDG_RUNTIME_DIR}/tpm_sock&#34;</span>
+</span></span><span class=line><span class=cl><span class=na>Restart</span><span class=o>=</span><span class=s>on-abnormal</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=k>[Install]</span>
+</span></span><span class=line><span class=cl><span class=na>WantedBy</span><span class=o>=</span><span class=s>default.target</span>
+</span></span></code></pre></div><p>不需要加入<code>--terminate</code>参数，以便于qemu重启时能够再次连接。</p><h3 id=windowsservice>windows.service</h3><div class=highlight><pre tabindex=0 class=chroma><code class=language-ini data-lang=ini><span class=line><span class=cl><span class=c1># /home/windows/.config/systemd/user/windows.service</span>
+</span></span><span class=line><span class=cl><span class=k>[Unit]</span>
+</span></span><span class=line><span class=cl><span class=na>Description</span><span class=o>=</span><span class=s>A QEMU service runs the Windows virtual machine</span>
+</span></span><span class=line><span class=cl><span class=na>Requires</span><span class=o>=</span><span class=s>swtpm.service</span>
+</span></span><span class=line><span class=cl><span class=na>After</span><span class=o>=</span><span class=s>swtpm.service</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=k>[Service]</span>
+</span></span><span class=line><span class=cl><span class=na>Type</span><span class=o>=</span><span class=s>simple</span>
+</span></span><span class=line><span class=cl><span class=na>ExecStartPre</span><span class=o>=</span><span class=s>/usr/bin/echo &#39;Note: Touch a file named /tmp/no-shutdown to prevent auto shutdown&#39;</span>
+</span></span><span class=line><span class=cl><span class=na>ExecStart</span><span class=o>=</span><span class=s>%h/qemu.sh</span>
+</span></span><span class=line><span class=cl><span class=na>ExecStopPost</span><span class=o>=</span><span class=s>/usr/bin/bash -c &#39;if [ &#34;$SERVICE_RESULT&#34; = &#34;success&#34; ] &amp;&amp; [ ! -f /tmp/no-shutdown ]; then systemctl poweroff --no-ask-password; else echo &#34;VM crashed or /tmp/no-shutdown detected, skipping poweroff&#34;; fi&#39;</span>
+</span></span><span class=line><span class=cl><span class=na>Restart</span><span class=o>=</span><span class=s>on-abnormal</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=k>[Install]</span>
+</span></span><span class=line><span class=cl><span class=na>WantedBy</span><span class=o>=</span><span class=s>default.target</span>
 </span></span></code></pre></div><p>这里使用判断exit code的方式决定QEMU是否正常退出，再结合<code>/tmp/no-shutdown</code> file flag来确定是否关机。最后请确保<code>qemu.sh</code>有执行权限。</p><h3 id=polkit-rules>Polkit Rules</h3><p>如果你现在直接尝试上面的windows.service那大概率是没法自动关机的，会被Access Denied。<br>平时在console的local user能直接<code>poweroff</code>关机应该是polkit开了洞。现在如果在service里试图关机，由于不是一个interactive环境，
-请求会被polkit直接拒绝。因此就像Udev Rules一样，我们也需要编写Polkit Rules来执行特权动作。</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-javascript data-lang=javascript><span style=display:flex><span><span style=color:#75715e>// /etc/polkit-1/rules.d/10-qemu-shutdown.rules
-</span></span></span><span style=display:flex><span><span style=color:#a6e22e>polkit</span>.<span style=color:#a6e22e>addRule</span>(<span style=color:#66d9ef>function</span>(<span style=color:#a6e22e>action</span>, <span style=color:#a6e22e>subject</span>) {
-</span></span><span style=display:flex><span>	<span style=color:#66d9ef>if</span> (<span style=color:#a6e22e>action</span>.<span style=color:#a6e22e>id</span> <span style=color:#f92672>===</span> <span style=color:#e6db74>&#34;org.freedesktop.login1.power-off&#34;</span> <span style=color:#f92672>&amp;&amp;</span>
-</span></span><span style=display:flex><span>	   <span style=color:#a6e22e>subject</span>.<span style=color:#a6e22e>user</span> <span style=color:#f92672>===</span> <span style=color:#e6db74>&#34;windows&#34;</span>) {
-</span></span><span style=display:flex><span>		<span style=color:#66d9ef>return</span> <span style=color:#a6e22e>polkit</span>.<span style=color:#a6e22e>Result</span>.<span style=color:#a6e22e>YES</span>;
-</span></span><span style=display:flex><span>	}
-</span></span><span style=display:flex><span>});
-</span></span></code></pre></div><h3 id=启用服务>启用服务</h3><p>然后启用所有必要的服务：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span><span style=color:#75715e># System services</span>
-</span></span><span style=display:flex><span>sudo systemctl enable sshd
-</span></span><span style=display:flex><span>sudo systemctl enable nftables
-</span></span><span style=display:flex><span>sudo systemctl enable Networkmanager
-</span></span><span style=display:flex><span>sudo systemctl enable systemd-resolved
-</span></span><span style=display:flex><span>sudo systemctl enable dynamic-rebind.service
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span><span style=color:#75715e># User services</span>
-</span></span><span style=display:flex><span>systemctl --user enable swtpm.service
-</span></span><span style=display:flex><span>systemctl --user enable windows.service
-</span></span></code></pre></div><p>最后，启动lingering：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>loginctl enable-linger
-</span></span></code></pre></div><p>Lingering能够让用户的service和session分离，使得能够实现开机自启，session结束服务继续运行的功能。</p><p>最后附<code>qemu.sh</code>：</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span><span style=color:#75715e>#! /usr/bin/env bash
-</span></span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span><span style=color:#66d9ef>if</span> <span style=color:#f92672>[</span> <span style=color:#e6db74>&#34;</span>$UID<span style=color:#e6db74>&#34;</span> -eq <span style=color:#ae81ff>0</span> <span style=color:#f92672>]</span>; <span style=color:#66d9ef>then</span>
-</span></span><span style=display:flex><span>	echo <span style=color:#e6db74>&#34;The script should not be run as root&#34;</span>
-</span></span><span style=display:flex><span>	exit <span style=color:#ae81ff>1</span>
-</span></span><span style=display:flex><span><span style=color:#66d9ef>fi</span>
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span><span style=color:#75715e># Hyper-V Enlightenments</span>
-</span></span><span style=display:flex><span>hyperv_opts<span style=color:#f92672>=(</span>
-</span></span><span style=display:flex><span>	hv_relaxed
-</span></span><span style=display:flex><span>	hv_vapic
-</span></span><span style=display:flex><span>	hv_spinlocks<span style=color:#f92672>=</span>0xfff
-</span></span><span style=display:flex><span>	hv_vpindex
-</span></span><span style=display:flex><span>	hv_synic
-</span></span><span style=display:flex><span>	hv_time
-</span></span><span style=display:flex><span>	hv_stimer
-</span></span><span style=display:flex><span>	hv_tlbflush
-</span></span><span style=display:flex><span>	hv_tlbflush_ext
-</span></span><span style=display:flex><span>	hv_ipi
-</span></span><span style=display:flex><span>	hv_stimer_direct
-</span></span><span style=display:flex><span>	hv_runtime
-</span></span><span style=display:flex><span>	hv_frequencies
-</span></span><span style=display:flex><span>	hv_reenlightenment
-</span></span><span style=display:flex><span>	hv_avic
-</span></span><span style=display:flex><span>	hv_xmm_input
-</span></span><span style=display:flex><span>	hv_vendor_id<span style=color:#f92672>=</span>0123456789ab
-</span></span><span style=display:flex><span><span style=color:#f92672>)</span>
-</span></span><span style=display:flex><span>hyperv_opts_str<span style=color:#f92672>=</span><span style=color:#66d9ef>$(</span>IFS<span style=color:#f92672>=</span>,; echo <span style=color:#e6db74>&#34;</span><span style=color:#e6db74>${</span>hyperv_opts[*]<span style=color:#e6db74>}</span><span style=color:#e6db74>&#34;</span><span style=color:#66d9ef>)</span>
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span><span style=color:#75715e># QEMU Args</span>
-</span></span><span style=display:flex><span>qemu_args<span style=color:#f92672>=(</span>
-</span></span><span style=display:flex><span>	<span style=color:#75715e>## Machine</span>
-</span></span><span style=display:flex><span>	-name windows
-</span></span><span style=display:flex><span>	-machine q35,vmport<span style=color:#f92672>=</span>off,smm<span style=color:#f92672>=</span>on
-</span></span><span style=display:flex><span>	-accel kvm
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span>	<span style=color:#75715e>## SMP </span>
-</span></span><span style=display:flex><span>	-cpu <span style=color:#e6db74>&#34;host,kvm=off,topoext=on,svm=on,hypervisor=on,</span><span style=color:#e6db74>${</span>hyperv_opts_str<span style=color:#e6db74>}</span><span style=color:#e6db74>&#34;</span>
-</span></span><span style=display:flex><span>	-smp 23,sockets<span style=color:#f92672>=</span>1,cores<span style=color:#f92672>=</span>23,threads<span style=color:#f92672>=</span><span style=color:#ae81ff>1</span>
-</span></span><span style=display:flex><span>	-m 29G
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span>	<span style=color:#75715e>## Firmware</span>
-</span></span><span style=display:flex><span>	-drive <span style=color:#66d9ef>if</span><span style=color:#f92672>=</span>pflash,format<span style=color:#f92672>=</span>raw,readonly<span style=color:#f92672>=</span>on,file<span style=color:#f92672>=</span>/usr/share/edk2/x64/OVMF_CODE.secboot.4m.fd
-</span></span><span style=display:flex><span>	-drive <span style=color:#66d9ef>if</span><span style=color:#f92672>=</span>pflash,format<span style=color:#f92672>=</span>raw,file<span style=color:#f92672>=</span><span style=color:#e6db74>&#34;</span>$HOME<span style=color:#e6db74>/firmware/nvram.fd&#34;</span>
-</span></span><span style=display:flex><span>	-fw_cfg name<span style=color:#f92672>=</span>opt/ovmf/X-PciMmio64Mb,string<span style=color:#f92672>=</span><span style=color:#ae81ff>65536</span>
-</span></span><span style=display:flex><span>	-global ICH9-LPC.disable_s3<span style=color:#f92672>=</span><span style=color:#ae81ff>1</span>
-</span></span><span style=display:flex><span>	-global ICH9-LPC.disable_s4<span style=color:#f92672>=</span><span style=color:#ae81ff>1</span>
-</span></span><span style=display:flex><span>	-boot menu<span style=color:#f92672>=</span>on,strict<span style=color:#f92672>=</span>on,reboot-timeout<span style=color:#f92672>=</span><span style=color:#ae81ff>2000</span>
-</span></span><span style=display:flex><span>	-rtc base<span style=color:#f92672>=</span>localtime
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span>	<span style=color:#75715e>## TPM2</span>
-</span></span><span style=display:flex><span>	-chardev socket,id<span style=color:#f92672>=</span>ch0,path<span style=color:#f92672>=</span><span style=color:#e6db74>&#34;</span>$XDG_RUNTIME_DIR<span style=color:#e6db74>/tpm_sock&#34;</span>
-</span></span><span style=display:flex><span>	-tpmdev emulator,id<span style=color:#f92672>=</span>tpm0,chardev<span style=color:#f92672>=</span>ch0
-</span></span><span style=display:flex><span>	-device tpm-tis,tpmdev<span style=color:#f92672>=</span>tpm0
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span>	<span style=color:#75715e>## PCIe Topology</span>
-</span></span><span style=display:flex><span>	-device pcie-root-port,id<span style=color:#f92672>=</span>rp0,bus<span style=color:#f92672>=</span>pcie.0,slot<span style=color:#f92672>=</span><span style=color:#ae81ff>1</span>
-</span></span><span style=display:flex><span>	-device x3130-upstream,id<span style=color:#f92672>=</span>swu0,bus<span style=color:#f92672>=</span>rp0
-</span></span><span style=display:flex><span>	-device xio3130-downstream,id<span style=color:#f92672>=</span>swd0,bus<span style=color:#f92672>=</span>swu0,slot<span style=color:#f92672>=</span><span style=color:#ae81ff>4</span>
-</span></span><span style=display:flex><span>	-device xio3130-downstream,id<span style=color:#f92672>=</span>swd1,bus<span style=color:#f92672>=</span>swu0,slot<span style=color:#f92672>=</span><span style=color:#ae81ff>5</span>
-</span></span><span style=display:flex><span>	-device xio3130-downstream,id<span style=color:#f92672>=</span>swd2,bus<span style=color:#f92672>=</span>swu0,slot<span style=color:#f92672>=</span><span style=color:#ae81ff>6</span>
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span>	-device pcie-root-port,id<span style=color:#f92672>=</span>rp1,bus<span style=color:#f92672>=</span>pcie.0,slot<span style=color:#f92672>=</span><span style=color:#ae81ff>2</span>
-</span></span><span style=display:flex><span>	-device x3130-upstream,id<span style=color:#f92672>=</span>swu1,bus<span style=color:#f92672>=</span>rp1
-</span></span><span style=display:flex><span>	-device xio3130-downstream,id<span style=color:#f92672>=</span>swd3,bus<span style=color:#f92672>=</span>swu1,slot<span style=color:#f92672>=</span><span style=color:#ae81ff>7</span>
-</span></span><span style=display:flex><span>	-device xio3130-downstream,id<span style=color:#f92672>=</span>swd4,bus<span style=color:#f92672>=</span>swu1,slot<span style=color:#f92672>=</span><span style=color:#ae81ff>8</span>
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span>	-device pcie-root-port,id<span style=color:#f92672>=</span>rp2,bus<span style=color:#f92672>=</span>pcie.0,slot<span style=color:#f92672>=</span><span style=color:#ae81ff>3</span>
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span>	<span style=color:#75715e>## Network</span>
-</span></span><span style=display:flex><span>	-netdev bridge,id<span style=color:#f92672>=</span>net0,br<span style=color:#f92672>=</span>virbr0
-</span></span><span style=display:flex><span>	-device virtio-net-pci,netdev<span style=color:#f92672>=</span>net0,mac<span style=color:#f92672>=</span>52:54:5c:fb:52:2a,bus<span style=color:#f92672>=</span>swd0
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span>	<span style=color:#75715e>## Storage</span>
-</span></span><span style=display:flex><span>	-drive <span style=color:#66d9ef>if</span><span style=color:#f92672>=</span>none,media<span style=color:#f92672>=</span>cdrom,id<span style=color:#f92672>=</span>cd0,file<span style=color:#f92672>=</span><span style=color:#e6db74>&#34;</span>$HOME<span style=color:#e6db74>/storage/Windows10-21H2-LTSC-IoT.iso&#34;</span>
-</span></span><span style=display:flex><span>	-drive <span style=color:#66d9ef>if</span><span style=color:#f92672>=</span>none,media<span style=color:#f92672>=</span>cdrom,id<span style=color:#f92672>=</span>cd1,file<span style=color:#f92672>=</span><span style=color:#e6db74>&#34;</span>$HOME<span style=color:#e6db74>/storage/virtio-win.iso&#34;</span>
-</span></span><span style=display:flex><span>	-drive <span style=color:#66d9ef>if</span><span style=color:#f92672>=</span>none,format<span style=color:#f92672>=</span>qcow2,id<span style=color:#f92672>=</span>disk0,file<span style=color:#f92672>=</span><span style=color:#e6db74>&#34;</span>$HOME<span style=color:#e6db74>/storage/rootfs.qcow2&#34;</span>
-</span></span><span style=display:flex><span>	-drive <span style=color:#66d9ef>if</span><span style=color:#f92672>=</span>none,format<span style=color:#f92672>=</span>raw,id<span style=color:#f92672>=</span>disk1,file<span style=color:#f92672>=</span>/dev/Data/windows
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span>	-device ide-cd,drive<span style=color:#f92672>=</span>cd0,bus<span style=color:#f92672>=</span>ide.0,bootindex<span style=color:#f92672>=</span><span style=color:#ae81ff>1</span>
-</span></span><span style=display:flex><span>	-device ide-cd,drive<span style=color:#f92672>=</span>cd1,bus<span style=color:#f92672>=</span>ide.1
-</span></span><span style=display:flex><span>	-device virtio-blk-pci,drive<span style=color:#f92672>=</span>disk0,bus<span style=color:#f92672>=</span>swd1,bootindex<span style=color:#f92672>=</span><span style=color:#ae81ff>0</span>
-</span></span><span style=display:flex><span>	-device virtio-blk-pci,drive<span style=color:#f92672>=</span>disk1,bus<span style=color:#f92672>=</span>swd2
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span>	<span style=color:#75715e>## PCI Passthrough</span>
-</span></span><span style=display:flex><span>	-device vfio-pci,host<span style=color:#f92672>=</span>0c:00.0,bus<span style=color:#f92672>=</span>swd3																	<span style=color:#75715e># USB Controller</span>
-</span></span><span style=display:flex><span>	-device vfio-pci,host<span style=color:#f92672>=</span>0f:00.3,bus<span style=color:#f92672>=</span>swd4
-</span></span><span style=display:flex><span>	-device vfio-pci,host<span style=color:#f92672>=</span>03:00.0,bus<span style=color:#f92672>=</span>rp2,addr<span style=color:#f92672>=</span>00.0,multifunction<span style=color:#f92672>=</span>on,romfile<span style=color:#f92672>=</span><span style=color:#e6db74>&#34;</span>$HOME<span style=color:#e6db74>/firmware/dummy.rom&#34;</span>		<span style=color:#75715e># GPU</span>
-</span></span><span style=display:flex><span>	-device vfio-pci,host<span style=color:#f92672>=</span>03:00.1,bus<span style=color:#f92672>=</span>rp2,addr<span style=color:#f92672>=</span>00.1
-</span></span><span style=display:flex><span>	-device vfio-pci,host<span style=color:#f92672>=</span>03:00.2,bus<span style=color:#f92672>=</span>rp2,addr<span style=color:#f92672>=</span>00.2
-</span></span><span style=display:flex><span>	-device vfio-pci,host<span style=color:#f92672>=</span>03:00.3,bus<span style=color:#f92672>=</span>rp2,addr<span style=color:#f92672>=</span>00.3
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span>	<span style=color:#75715e>## Display</span>
-</span></span><span style=display:flex><span>	-vga none
-</span></span><span style=display:flex><span>	-nographic
-</span></span><span style=display:flex><span><span style=color:#f92672>)</span>
-</span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span><span style=color:#75715e># Run Guest Windows VM</span>
-</span></span><span style=display:flex><span>exec qemu-system-x86_64 <span style=color:#e6db74>&#34;</span><span style=color:#e6db74>${</span>qemu_args[@]<span style=color:#e6db74>}</span><span style=color:#e6db74>&#34;</span>
+请求会被polkit直接拒绝。因此就像Udev Rules一样，我们也需要编写Polkit Rules来执行特权动作。</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-javascript data-lang=javascript><span class=line><span class=cl><span class=c1>// /etc/polkit-1/rules.d/10-qemu-shutdown.rules
+</span></span></span><span class=line><span class=cl><span class=nx>polkit</span><span class=p>.</span><span class=nx>addRule</span><span class=p>(</span><span class=kd>function</span><span class=p>(</span><span class=nx>action</span><span class=p>,</span> <span class=nx>subject</span><span class=p>)</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>	<span class=k>if</span> <span class=p>(</span><span class=nx>action</span><span class=p>.</span><span class=nx>id</span> <span class=o>===</span> <span class=s2>&#34;org.freedesktop.login1.power-off&#34;</span> <span class=o>&amp;&amp;</span>
+</span></span><span class=line><span class=cl>	   <span class=nx>subject</span><span class=p>.</span><span class=nx>user</span> <span class=o>===</span> <span class=s2>&#34;windows&#34;</span><span class=p>)</span> <span class=p>{</span>
+</span></span><span class=line><span class=cl>		<span class=k>return</span> <span class=nx>polkit</span><span class=p>.</span><span class=nx>Result</span><span class=p>.</span><span class=nx>YES</span><span class=p>;</span>
+</span></span><span class=line><span class=cl>	<span class=p>}</span>
+</span></span><span class=line><span class=cl><span class=p>});</span>
+</span></span></code></pre></div><h3 id=启用服务>启用服务</h3><p>然后启用所有必要的服务：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl><span class=c1># System services</span>
+</span></span><span class=line><span class=cl>sudo systemctl <span class=nb>enable</span> sshd
+</span></span><span class=line><span class=cl>sudo systemctl <span class=nb>enable</span> nftables
+</span></span><span class=line><span class=cl>sudo systemctl <span class=nb>enable</span> Networkmanager
+</span></span><span class=line><span class=cl>sudo systemctl <span class=nb>enable</span> systemd-resolved
+</span></span><span class=line><span class=cl>sudo systemctl <span class=nb>enable</span> dynamic-rebind.service
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=c1># User services</span>
+</span></span><span class=line><span class=cl>systemctl --user <span class=nb>enable</span> swtpm.service
+</span></span><span class=line><span class=cl>systemctl --user <span class=nb>enable</span> windows.service
+</span></span></code></pre></div><p>最后，启动lingering：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl>loginctl enable-linger
+</span></span></code></pre></div><p>Lingering能够让用户的service和session分离，使得能够实现开机自启，session结束服务继续运行的功能。</p><p>最后附<code>qemu.sh</code>：</p><div class=highlight><pre tabindex=0 class=chroma><code class=language-bash data-lang=bash><span class=line><span class=cl><span class=cp>#! /usr/bin/env bash
+</span></span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=k>if</span> <span class=o>[</span> <span class=s2>&#34;</span><span class=nv>$UID</span><span class=s2>&#34;</span> -eq <span class=m>0</span> <span class=o>]</span><span class=p>;</span> <span class=k>then</span>
+</span></span><span class=line><span class=cl>	<span class=nb>echo</span> <span class=s2>&#34;The script should not be run as root&#34;</span>
+</span></span><span class=line><span class=cl>	<span class=nb>exit</span> <span class=m>1</span>
+</span></span><span class=line><span class=cl><span class=k>fi</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=c1># Hyper-V Enlightenments</span>
+</span></span><span class=line><span class=cl><span class=nv>hyperv_opts</span><span class=o>=(</span>
+</span></span><span class=line><span class=cl>	hv_relaxed
+</span></span><span class=line><span class=cl>	hv_vapic
+</span></span><span class=line><span class=cl>	<span class=nv>hv_spinlocks</span><span class=o>=</span>0xfff
+</span></span><span class=line><span class=cl>	hv_vpindex
+</span></span><span class=line><span class=cl>	hv_synic
+</span></span><span class=line><span class=cl>	hv_time
+</span></span><span class=line><span class=cl>	hv_stimer
+</span></span><span class=line><span class=cl>	hv_tlbflush
+</span></span><span class=line><span class=cl>	hv_tlbflush_ext
+</span></span><span class=line><span class=cl>	hv_ipi
+</span></span><span class=line><span class=cl>	hv_stimer_direct
+</span></span><span class=line><span class=cl>	hv_runtime
+</span></span><span class=line><span class=cl>	hv_frequencies
+</span></span><span class=line><span class=cl>	hv_reenlightenment
+</span></span><span class=line><span class=cl>	hv_avic
+</span></span><span class=line><span class=cl>	hv_xmm_input
+</span></span><span class=line><span class=cl>	<span class=nv>hv_vendor_id</span><span class=o>=</span>0123456789ab
+</span></span><span class=line><span class=cl><span class=o>)</span>
+</span></span><span class=line><span class=cl><span class=nv>hyperv_opts_str</span><span class=o>=</span><span class=k>$(</span><span class=nv>IFS</span><span class=o>=</span>,<span class=p>;</span> <span class=nb>echo</span> <span class=s2>&#34;</span><span class=si>${</span><span class=nv>hyperv_opts</span><span class=p>[*]</span><span class=si>}</span><span class=s2>&#34;</span><span class=k>)</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=c1># QEMU Args</span>
+</span></span><span class=line><span class=cl><span class=nv>qemu_args</span><span class=o>=(</span>
+</span></span><span class=line><span class=cl>	<span class=c1>## Machine</span>
+</span></span><span class=line><span class=cl>	-name windows
+</span></span><span class=line><span class=cl>	-machine q35,vmport<span class=o>=</span>off,smm<span class=o>=</span>on
+</span></span><span class=line><span class=cl>	-accel kvm
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>	<span class=c1>## SMP </span>
+</span></span><span class=line><span class=cl>	-cpu <span class=s2>&#34;host,kvm=off,topoext=on,svm=on,hypervisor=on,</span><span class=si>${</span><span class=nv>hyperv_opts_str</span><span class=si>}</span><span class=s2>&#34;</span>
+</span></span><span class=line><span class=cl>	-smp 23,sockets<span class=o>=</span>1,cores<span class=o>=</span>23,threads<span class=o>=</span><span class=m>1</span>
+</span></span><span class=line><span class=cl>	-m 29G
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>	<span class=c1>## Firmware</span>
+</span></span><span class=line><span class=cl>	-drive <span class=k>if</span><span class=o>=</span>pflash,format<span class=o>=</span>raw,readonly<span class=o>=</span>on,file<span class=o>=</span>/usr/share/edk2/x64/OVMF_CODE.secboot.4m.fd
+</span></span><span class=line><span class=cl>	-drive <span class=k>if</span><span class=o>=</span>pflash,format<span class=o>=</span>raw,file<span class=o>=</span><span class=s2>&#34;</span><span class=nv>$HOME</span><span class=s2>/firmware/nvram.fd&#34;</span>
+</span></span><span class=line><span class=cl>	-fw_cfg <span class=nv>name</span><span class=o>=</span>opt/ovmf/X-PciMmio64Mb,string<span class=o>=</span><span class=m>65536</span>
+</span></span><span class=line><span class=cl>	-global ICH9-LPC.disable_s3<span class=o>=</span><span class=m>1</span>
+</span></span><span class=line><span class=cl>	-global ICH9-LPC.disable_s4<span class=o>=</span><span class=m>1</span>
+</span></span><span class=line><span class=cl>	-boot <span class=nv>menu</span><span class=o>=</span>on,strict<span class=o>=</span>on,reboot-timeout<span class=o>=</span><span class=m>2000</span>
+</span></span><span class=line><span class=cl>	-rtc <span class=nv>base</span><span class=o>=</span>localtime
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>	<span class=c1>## TPM2</span>
+</span></span><span class=line><span class=cl>	-chardev socket,id<span class=o>=</span>ch0,path<span class=o>=</span><span class=s2>&#34;</span><span class=nv>$XDG_RUNTIME_DIR</span><span class=s2>/tpm_sock&#34;</span>
+</span></span><span class=line><span class=cl>	-tpmdev emulator,id<span class=o>=</span>tpm0,chardev<span class=o>=</span>ch0
+</span></span><span class=line><span class=cl>	-device tpm-tis,tpmdev<span class=o>=</span>tpm0
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>	<span class=c1>## PCIe Topology</span>
+</span></span><span class=line><span class=cl>	-device pcie-root-port,id<span class=o>=</span>rp0,bus<span class=o>=</span>pcie.0,slot<span class=o>=</span><span class=m>1</span>
+</span></span><span class=line><span class=cl>	-device x3130-upstream,id<span class=o>=</span>swu0,bus<span class=o>=</span>rp0
+</span></span><span class=line><span class=cl>	-device xio3130-downstream,id<span class=o>=</span>swd0,bus<span class=o>=</span>swu0,slot<span class=o>=</span><span class=m>4</span>
+</span></span><span class=line><span class=cl>	-device xio3130-downstream,id<span class=o>=</span>swd1,bus<span class=o>=</span>swu0,slot<span class=o>=</span><span class=m>5</span>
+</span></span><span class=line><span class=cl>	-device xio3130-downstream,id<span class=o>=</span>swd2,bus<span class=o>=</span>swu0,slot<span class=o>=</span><span class=m>6</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>	-device pcie-root-port,id<span class=o>=</span>rp1,bus<span class=o>=</span>pcie.0,slot<span class=o>=</span><span class=m>2</span>
+</span></span><span class=line><span class=cl>	-device x3130-upstream,id<span class=o>=</span>swu1,bus<span class=o>=</span>rp1
+</span></span><span class=line><span class=cl>	-device xio3130-downstream,id<span class=o>=</span>swd3,bus<span class=o>=</span>swu1,slot<span class=o>=</span><span class=m>7</span>
+</span></span><span class=line><span class=cl>	-device xio3130-downstream,id<span class=o>=</span>swd4,bus<span class=o>=</span>swu1,slot<span class=o>=</span><span class=m>8</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>	-device pcie-root-port,id<span class=o>=</span>rp2,bus<span class=o>=</span>pcie.0,slot<span class=o>=</span><span class=m>3</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>	<span class=c1>## Network</span>
+</span></span><span class=line><span class=cl>	-netdev bridge,id<span class=o>=</span>net0,br<span class=o>=</span>virbr0
+</span></span><span class=line><span class=cl>	-device virtio-net-pci,netdev<span class=o>=</span>net0,mac<span class=o>=</span>52:54:5c:fb:52:2a,bus<span class=o>=</span>swd0
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>	<span class=c1>## Storage</span>
+</span></span><span class=line><span class=cl>	-drive <span class=k>if</span><span class=o>=</span>none,media<span class=o>=</span>cdrom,id<span class=o>=</span>cd0,file<span class=o>=</span><span class=s2>&#34;</span><span class=nv>$HOME</span><span class=s2>/storage/Windows10-21H2-LTSC-IoT.iso&#34;</span>
+</span></span><span class=line><span class=cl>	-drive <span class=k>if</span><span class=o>=</span>none,media<span class=o>=</span>cdrom,id<span class=o>=</span>cd1,file<span class=o>=</span><span class=s2>&#34;</span><span class=nv>$HOME</span><span class=s2>/storage/virtio-win.iso&#34;</span>
+</span></span><span class=line><span class=cl>	-drive <span class=k>if</span><span class=o>=</span>none,format<span class=o>=</span>qcow2,id<span class=o>=</span>disk0,file<span class=o>=</span><span class=s2>&#34;</span><span class=nv>$HOME</span><span class=s2>/storage/rootfs.qcow2&#34;</span>
+</span></span><span class=line><span class=cl>	-drive <span class=k>if</span><span class=o>=</span>none,format<span class=o>=</span>raw,id<span class=o>=</span>disk1,file<span class=o>=</span>/dev/Data/windows
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>	-device ide-cd,drive<span class=o>=</span>cd0,bus<span class=o>=</span>ide.0,bootindex<span class=o>=</span><span class=m>1</span>
+</span></span><span class=line><span class=cl>	-device ide-cd,drive<span class=o>=</span>cd1,bus<span class=o>=</span>ide.1
+</span></span><span class=line><span class=cl>	-device virtio-blk-pci,drive<span class=o>=</span>disk0,bus<span class=o>=</span>swd1,bootindex<span class=o>=</span><span class=m>0</span>
+</span></span><span class=line><span class=cl>	-device virtio-blk-pci,drive<span class=o>=</span>disk1,bus<span class=o>=</span>swd2
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>	<span class=c1>## PCI Passthrough</span>
+</span></span><span class=line><span class=cl>	-device vfio-pci,host<span class=o>=</span>0c:00.0,bus<span class=o>=</span>swd3																	<span class=c1># USB Controller</span>
+</span></span><span class=line><span class=cl>	-device vfio-pci,host<span class=o>=</span>0f:00.3,bus<span class=o>=</span>swd4
+</span></span><span class=line><span class=cl>	-device vfio-pci,host<span class=o>=</span>03:00.0,bus<span class=o>=</span>rp2,addr<span class=o>=</span>00.0,multifunction<span class=o>=</span>on,romfile<span class=o>=</span><span class=s2>&#34;</span><span class=nv>$HOME</span><span class=s2>/firmware/dummy.rom&#34;</span>		<span class=c1># GPU</span>
+</span></span><span class=line><span class=cl>	-device vfio-pci,host<span class=o>=</span>03:00.1,bus<span class=o>=</span>rp2,addr<span class=o>=</span>00.1
+</span></span><span class=line><span class=cl>	-device vfio-pci,host<span class=o>=</span>03:00.2,bus<span class=o>=</span>rp2,addr<span class=o>=</span>00.2
+</span></span><span class=line><span class=cl>	-device vfio-pci,host<span class=o>=</span>03:00.3,bus<span class=o>=</span>rp2,addr<span class=o>=</span>00.3
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>	<span class=c1>## Display</span>
+</span></span><span class=line><span class=cl>	-vga none
+</span></span><span class=line><span class=cl>	-nographic
+</span></span><span class=line><span class=cl><span class=o>)</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl><span class=c1># Run Guest Windows VM</span>
+</span></span><span class=line><span class=cl><span class=nb>exec</span> qemu-system-x86_64 <span class=s2>&#34;</span><span class=si>${</span><span class=nv>qemu_args</span><span class=p>[@]</span><span class=si>}</span><span class=s2>&#34;</span>
 </span></span></code></pre></div><h2 id=效果展示>效果展示</h2><p><img src=/post/qemu-windows-vfio_passthrough/img/result-01.webp width=2560 height=1440 loading=lazy alt=GPU-Z class=gallery-image data-flex-grow=177 data-flex-basis=426px>
 GPU-Z检测显卡PCIe的逻辑非常神秘，开机后第一次启动显示PCIe 4.0 x16，过了几秒变成PCIe，关了再开就退化成PCI了😅<br>但AMD驱动以及Windows的设备管理器显示的都是4.0 x16，使用AIDA64测了一下带宽也有23GiB/s。</p><p><img src=/post/qemu-windows-vfio_passthrough/img/result-02.webp width=2560 height=1440 loading=lazy alt=Horizon-01 class=gallery-image data-flex-grow=177 data-flex-basis=426px>
 <img src=/post/qemu-windows-vfio_passthrough/img/result-03.webp width=2560 height=1440 loading=lazy alt=Horizon-02 class=gallery-image data-flex-grow=177 data-flex-basis=426px></p><h2 id=reference>Reference</h2><ul><li><a class=link href=https://pve.sqlsec.com/4/2/#iommu-sr-iov target=_blank rel=noopener>硬件直通</a></li><li><a class=link href=https://wiki.archlinux.org/title/Systemd/User target=_blank rel=noopener>systemd/User</a></li><li><a class=link href=https://github.com/qemu/qemu/blob/master/docs/pcie.txt target=_blank rel=noopener>QEMU Docs: PCIe</a></li><li><a class=link href=https://undus.net/posts/qemu-kvm-win11-guest target=_blank rel=noopener>QEMU/KVM: Windows 11 Guest</a></li><li><a class=link href=https://wiki.archlinux.org/title/PCI_passthrough_via_OVMF target=_blank rel=noopener>PCI passthrough via OVMF</a></li><li><a class=link href=https://projectacrn.github.io/latest/tutorials/waag-secure-boot.html target=_blank rel=noopener>Enable Secure Boot in Windows</a></li><li><a class=link href="https://bbs.archlinux.org/viewtopic.php?id=288756" target=_blank rel=noopener>No Output From 7900XTX GPU via OVMF PCI Passthrough</a></li><li><a class=link href=https://forum.level1techs.com/t/increasing-vfio-vga-performance/133443 target=_blank rel=noopener>Increasing VFIO VGA Performance</a></li><li><a class=link href=https://forum.proxmox.com/threads/amd-7900-xt-or-xtx-pci-passthrough.121566/post-528609 target=_blank rel=noopener>AMD 7900 XT or XTX pci passthrough</a></li><li><a class=link href=https://forum.level1techs.com/t/the-state-of-amd-rx-7000-series-vfio-passthrough-april-2024/210242 target=_blank rel=noopener>The state of AMD RX 7000 Series VFIO Passthrough</a></li><li><a class=link href=https://docs.redhat.com/en/documentation/red_hat_virtualization/4.1/html/installation_guide/appe-configuring_a_hypervisor_host_for_pci_passthrough target=_blank rel=noopener>Appendix G. Configuring a Host for PCI Passthrough</a></li></ul></section><footer class=article-footer><section class=article-tags><a href=/tags/linux/>Linux</a>
