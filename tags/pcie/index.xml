@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>PCIe on Mirika's Blog</title><link>https://mirikaryu.github.io/tags/pcie/</link><description>Recent content in PCIe on Mirika's Blog</description><generator>Hugo -- gohugo.io</generator><language>zh-cn</language><copyright>Mirika</copyright><lastBuildDate>Wed, 31 Dec 2025 18:25:01 +0800</lastBuildDate><atom:link href="https://mirikaryu.github.io/tags/pcie/index.xml" rel="self" type="application/rss+xml"/><item><title>QEMU/VFIO: Windows Guest 折腾记录</title><link>https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/</link><pubDate>Wed, 31 Dec 2025 18:25:01 +0800</pubDate><guid>https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/</guid><description>&lt;img src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/cover.webp" alt="Featured image of post QEMU/VFIO: Windows Guest 折腾记录" /&gt;&lt;h2 id="前言"&gt;前言
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>PCIe on Mirika's Blog</title><link>https://mirikaryu.github.io/tags/pcie/</link><description>Recent content in PCIe on Mirika's Blog</description><generator>Hugo -- gohugo.io</generator><language>zh-cn</language><copyright>Mirika</copyright><lastBuildDate>Wed, 31 Dec 2025 18:25:01 +0800</lastBuildDate><atom:link href="https://mirikaryu.github.io/tags/pcie/index.xml" rel="self" type="application/rss+xml"/><item><title>QEMU/VFIO: Windows Guest 折腾记录</title><link>https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/</link><pubDate>Wed, 31 Dec 2025 18:25:01 +0800</pubDate><guid>https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/</guid><description>&lt;img src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/cover.webp" alt="Featured image of post QEMU/VFIO: Windows Guest 折腾记录" /&gt;&lt;h2 id="前言"&gt;&lt;a href="#%e5%89%8d%e8%a8%80" class="header-anchor"&gt;&lt;/a&gt;前言
 &lt;/h2&gt;&lt;p&gt;由于小时候不懂事在沟槽的Microsoft Store上买了个Horizon 4，以及Linux(Wayland)上一直缺乏一个好用的Office软件，
 一直想搭建一个体验如同真机的Windows虚拟机，即开机接管所有外围设备并直接进入Windows，关机也会将整台电脑一起关闭。&lt;br&gt;
 你说为什么不Dual Boot🧐？&lt;br&gt;
@@ -24,7 +24,7 @@ nvme0n1 232.9G
 ├─Root-steamos btrfs 64G
 └─Root-windows btrfs 4G
 &lt;/code&gt;&lt;/pre&gt;&lt;p&gt;&lt;del&gt;三块盘完美符合Memory Hierarchy&lt;/del&gt;&lt;br&gt;
-在这种磁盘布局下很难在不失灵活性的同时单独安装 Windows。&lt;/p&gt;
+在这种磁盘布局下很难在不失灵活性的同时单独安装Windows。&lt;/p&gt;
 &lt;p&gt;在继续之前先对照一下平台配置：&lt;/p&gt;
 &lt;ul&gt;
 &lt;li&gt;CPU: AMD Ryzen 9 9900X (24)&lt;/li&gt;
@@ -35,7 +35,7 @@ nvme0n1 232.9G
 &lt;li&gt;Kernel: 6.18.2&lt;/li&gt;
 &lt;/ul&gt;
 &lt;p&gt;需要注意的是不同的板U组合对后续直通的影响很大，同时RX 7000系的显卡会有很多quirks，会导致直通流程与一般的显卡不太一样。&lt;/p&gt;
-&lt;h2 id="一些说明"&gt;一些说明
+&lt;h2 id="一些说明"&gt;&lt;a href="#%e4%b8%80%e4%ba%9b%e8%af%b4%e6%98%8e" class="header-anchor"&gt;&lt;/a&gt;一些说明
 &lt;/h2&gt;&lt;p&gt;我在接下来的步骤中将会直接使用QEMU command line启动虚拟机。&lt;br&gt;
 为什么不使用libvirt？用过，感觉很烂。这玩意对个人用户纯纯Overkill：&lt;/p&gt;
 &lt;ul&gt;
@@ -45,7 +45,7 @@ nvme0n1 232.9G
 &lt;/ul&gt;
 &lt;p&gt;VFIO PCI设备直通和硬件平台本身的联系非常密切，请一定根据&lt;strong&gt;你的硬件配置&lt;/strong&gt;选择应该采用哪些步骤、如何配置。&lt;/p&gt;
 &lt;p&gt;如果你是按照我接下来的方法配置的Windows Guest，请&lt;strong&gt;绝对不要&lt;/strong&gt;在Windows中开启内核隔离/Hyper-V等依赖虚拟化的功能，
-否则重启后会卡在启动界面无法进入Greeter。&lt;br&gt;
+否则重启后可能会卡在启动界面无法进入Greeter。&lt;br&gt;
 &lt;del&gt;如果你能在WinRE中挂载分区修改注册表那可以试试&lt;/del&gt;&lt;/p&gt;
 &lt;p&gt;虽然虚拟机到最后确实是跑在一个headless的Arch Linux上的，但是在安装Windows时由于没有显卡驱动所以可能需要使用QEMU的图形后端
 （如gtk，vnc）来显示VGA输出。&lt;br&gt;
@@ -58,7 +58,7 @@ nvme0n1 232.9G
 &lt;li&gt;除了可以使用&lt;code&gt;man qemu&lt;/code&gt;查看整体的文档外，如果想查看某个选项/设备的参数可以使用&lt;code&gt;qemu-system-x86_64 xxx,help&lt;/code&gt;。&lt;br&gt;
 比如使用&lt;code&gt;qemu-system-x86_64 -device vfio-pci,help&lt;/code&gt;查看该设备接受的参数。&lt;/li&gt;
 &lt;/ul&gt;
-&lt;h2 id="cpu-和芯片组"&gt;CPU 和芯片组
+&lt;h2 id="cpu-和芯片组"&gt;&lt;a href="#cpu-%e5%92%8c%e8%8a%af%e7%89%87%e7%bb%84" class="header-anchor"&gt;&lt;/a&gt;CPU 和芯片组
 &lt;/h2&gt;&lt;p&gt;先配置基本的CPU，内存和芯片组：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="c1"&gt;# Machine&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;-name windows
@@ -99,10 +99,10 @@ CPU拓扑和内存如果没有什么性能需求随便分配即可，这边留�
 不过按理说AMD不会像隔壁一样禁止你在虚拟机里用他的GPU，那是什么原因呢🤔？留到&lt;a class="link" href="#gpu-%e7%9b%b4%e9%80%9a" &gt;显卡直通&lt;/a&gt;的时候再讲好了（&lt;/p&gt;
 &lt;p&gt;&lt;strong&gt;Hints:&lt;/strong&gt;&lt;/p&gt;
 &lt;ul&gt;
-&lt;li&gt;根据 ArchWiki，自 Windows 10 1803 版本及以后需要在配置内核模块参数&lt;code&gt;kvm.ignore_msrs=1&lt;/code&gt;和&lt;code&gt;kvm.report_ignored_msrs=0&lt;/code&gt;以防止蓝屏。&lt;br&gt;
+&lt;li&gt;根据 ArchWiki，自Windows 10 1803版本及以后需要在配置内核模块参数&lt;code&gt;kvm.ignore_msrs=1&lt;/code&gt;和&lt;code&gt;kvm.report_ignored_msrs=0&lt;/code&gt;以防止蓝屏。&lt;br&gt;
 但在我这边暂未出现该情况，如有需要可以添加。&lt;/li&gt;
 &lt;/ul&gt;
-&lt;h2 id="uefi-和-tpm2"&gt;UEFI 和 TPM2
+&lt;h2 id="uefi-和-tpm2"&gt;&lt;a href="#uefi-%e5%92%8c-tpm2" class="header-anchor"&gt;&lt;/a&gt;UEFI 和 TPM2
 &lt;/h2&gt;&lt;p&gt;虽然我只打算装Windows 10 IoT，但鬼知道哪天MICRO$OFT会不会发病让你强制升级Windows 11。&lt;br&gt;
 如果要装Windows 11的话tpm2还是最好打开，不然就算装上去了更新也很麻烦。&lt;/p&gt;
 &lt;p&gt;使用swtpm模拟tpm2：&lt;/p&gt;
@@ -128,12 +128,12 @@ CPU拓扑和内存如果没有什么性能需求随便分配即可，这边留�
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;前两行指定了UEFI固件和存储设置的NVRAM文件。如果你希望使用secure boot，
 那么第一个UEFI固件必须选择带secboot字样的文件，这个在不同发行版之间的名字差别不大。&lt;br&gt;
 但对于第二个NVRAM模板文件，不同发行版之间的差异较大。如果你是Arch Linux用户，那么请参阅后面的&lt;a class="link" href="#%e5%ae%89%e5%85%a8%e5%90%af%e5%8a%a8" &gt;安全启动&lt;/a&gt;这一小节；
-如果你使用Fedora，那么应该能够找到一个enroll了微软证书的secboot NVRAM模板，直接拷贝后使用即可开启secboot.&lt;/p&gt;
+如果你使用Fedora，那么应该能够找到一个enroll了微软证书的secboot NVRAM模板，直接拷贝后使用即可开启secboot。&lt;/p&gt;
 &lt;p&gt;&lt;code&gt;fw_cfg&lt;/code&gt;打开固件对于大于4G地址空间的解码支持，edk2面板中没有提供此入口，用于下文的显卡直通，不过目前感觉没啥卵用。&lt;/p&gt;
-&lt;p&gt;接下来的几行关闭了系统对于suspend(S3)和hibernate(S4)的支持以防Windows睡死，并将客户机的RTC置为local time。&lt;/p&gt;
-&lt;h2 id="pcie-拓扑"&gt;PCIe 拓扑
+&lt;p&gt;接下来的几行关闭了系统对于suspend(S3)和hibernate(S4)的支持以防Windows睡死，并将客户机的RTC置为localtime。&lt;/p&gt;
+&lt;h2 id="pcie-拓扑"&gt;&lt;a href="#pcie-%e6%8b%93%e6%89%91" class="header-anchor"&gt;&lt;/a&gt;PCIe 拓扑
 &lt;/h2&gt;&lt;p&gt;本来只是想着能把设备连上就行，结果中间出了一堆问题，因此在解决问题的同时顺便学习了一下PCIe。&lt;/p&gt;
-&lt;h3 id="pcie-简介"&gt;PCIe 简介
+&lt;h3 id="pcie-简介"&gt;&lt;a href="#pcie-%e7%ae%80%e4%bb%8b" class="header-anchor"&gt;&lt;/a&gt;PCIe 简介
 &lt;/h3&gt;&lt;p&gt;PCIe是现代消费级计算机中唯一的内部高速总线，负责连接CPU与几乎所有的外围设备，甚至连接CPU与CPU内部的各种功能。&lt;br&gt;
 PCIe是从PCI这个并行总线演化而来的，在软件配置上完全兼容PCI，因此在编写软件时，一般都直接称PCIe设备为PCI设备。&lt;/p&gt;
 &lt;p&gt;我们先来看一下PCIe的地址格式，BDF，即Bus:Device.Function：&lt;/p&gt;
@@ -272,7 +272,7 @@ data-flex-basis="378px"
 Internal的部分用于连接CPU内的非核心功能，比如USB控制器，核显以及AMD的PSP（这玩意是个ARM核）。剩下的4个根端口，&lt;code&gt;00:01.1&lt;/code&gt;连接了显卡，
 &lt;code&gt;00:01.2&lt;/code&gt;连接的是第一块SSD，&lt;code&gt;00:02.1&lt;/code&gt;连接到了南桥芯片组（其实就是个Switch加俩Controller，甚至可以当作PCIe扩展卡脱离AMD平台单独使用🤣），
 &lt;code&gt;00:02.2&lt;/code&gt;与另一块SSD相连。最后南桥的7个Downstream Port中有4个分别连接了网卡，USB控制器和AHCI控制器。&lt;/p&gt;
-&lt;h3 id="配置-pcie-拓扑"&gt;配置 PCIe 拓扑
+&lt;h3 id="配置-pcie-拓扑"&gt;&lt;a href="#%e9%85%8d%e7%bd%ae-pcie-%e6%8b%93%e6%89%91" class="header-anchor"&gt;&lt;/a&gt;配置 PCIe 拓扑
 &lt;/h3&gt;&lt;p&gt;既然已经大致了解了PCIe，那么就可以使用以下配置描述一个相对真实的拓扑了：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="c1"&gt;# PCIe Topology&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;-device pcie-root-port,id&lt;span class="o"&gt;=&lt;/span&gt;rp0,bus&lt;span class="o"&gt;=&lt;/span&gt;pcie.0,slot&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="m"&gt;1&lt;/span&gt;
@@ -313,9 +313,9 @@ LLM认为&lt;code&gt;chassis&lt;/code&gt;对应的是实际的机箱，&lt;code&
 +-1f.0 Intel Corporation 82801IB (ICH9) LPC Interface Controller [8086:2918]
 +-1f.2 Intel Corporation 82801IR/IO/IH (ICH9R/DO/DH) 6 port SATA Controller [AHCI mode] [8086:2922]
 \-1f.3 Intel Corporation 82801I (ICH9 Family) SMBus Controller [8086:2930]
-&lt;/code&gt;&lt;/pre&gt;&lt;h2 id="网络配置"&gt;网络配置
+&lt;/code&gt;&lt;/pre&gt;&lt;h2 id="网络配置"&gt;&lt;a href="#%e7%bd%91%e7%bb%9c%e9%85%8d%e7%bd%ae" class="header-anchor"&gt;&lt;/a&gt;网络配置
 &lt;/h2&gt;&lt;p&gt;对于没有什么特殊需求的情况，选择NAT即可。&lt;del&gt;其实是辣鸡消费级无线网卡不支持桥接&lt;/del&gt;&lt;/p&gt;
-&lt;h3 id="配置-networkmanager"&gt;配置 Networkmanager
+&lt;h3 id="配置-networkmanager"&gt;&lt;a href="#%e9%85%8d%e7%bd%ae-networkmanager" class="header-anchor"&gt;&lt;/a&gt;配置 Networkmanager
 &lt;/h3&gt;&lt;p&gt;这里使用的是Networkmanager + dnsmasq的组合，从而免去配置nftable的麻烦。
 由于Networkmanager主要管理本地链路，因此需要dnsmasq作为DHCP服务器，不过一般不需要自己手动配置。&lt;/p&gt;
 &lt;p&gt;先使用&lt;code&gt;nmcli&lt;/code&gt;创建一个名字为&lt;code&gt;virbr0&lt;/code&gt;的网桥并关闭stp：&lt;/p&gt;
@@ -337,10 +337,10 @@ type nat hook postrouting priority srcnat; policy accept;
 oifname != &amp;#34;lo&amp;#34; masquerade
 }
 }
-&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;如果原来的文件中包含一些防火墙之类的默认配置，请根据需求决定是否保留。&lt;br&gt;
-更改完后启用或者重启nftable.service即可：&lt;/p&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;如果原来的文件中包含一些防火墙之类的默认配置，请根据需求决定是否保留。&lt;/p&gt;
+&lt;p&gt;更改完后启用或者重启nftable.service即可：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;sudo systemctl &lt;span class="nb"&gt;enable&lt;/span&gt; --now nftables.service
-&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h3 id="为客户机添加网卡"&gt;为客户机添加网卡
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h3 id="为客户机添加网卡"&gt;&lt;a href="#%e4%b8%ba%e5%ae%a2%e6%88%b7%e6%9c%ba%e6%b7%bb%e5%8a%a0%e7%bd%91%e5%8d%a1" class="header-anchor"&gt;&lt;/a&gt;为客户机添加网卡
 &lt;/h3&gt;&lt;p&gt;先使用&lt;code&gt;openssl&lt;/code&gt;生成一串随机数作为网卡的MAC地址：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;openssl rand -hex &lt;span class="m"&gt;4&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;pre tabindex="0"&gt;&lt;code&gt;cb25ff96
@@ -350,7 +350,7 @@ oifname != &amp;#34;lo&amp;#34; masquerade
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;-netdev bridge,id&lt;span class="o"&gt;=&lt;/span&gt;net0,br&lt;span class="o"&gt;=&lt;/span&gt;virbr0
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;-device virtio-net-pci,netdev&lt;span class="o"&gt;=&lt;/span&gt;net0,mac&lt;span class="o"&gt;=&lt;/span&gt;52:54:cb:25:ff:96,bus&lt;span class="o"&gt;=&lt;/span&gt;swd0
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;在客户机中直接ssh到其显示的网关即可和宿主机建立连接。&lt;/p&gt;
-&lt;h2 id="存储配置"&gt;存储配置
+&lt;h2 id="存储配置"&gt;&lt;a href="#%e5%ad%98%e5%82%a8%e9%85%8d%e7%bd%ae" class="header-anchor"&gt;&lt;/a&gt;存储配置
 &lt;/h2&gt;&lt;p&gt;先创建一个64GiB的QEMU qcow2镜像作为Windows的系统盘：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;qemu-img create -f qcow2 rootfs.qcow2 -o &lt;span class="nv"&gt;nocow&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;on 64G
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;如果你使用的是Btrfs，需要像上面这样关闭qcow2镜像的COW功能。&lt;/p&gt;
@@ -387,12 +387,12 @@ oifname != &amp;#34;lo&amp;#34; masquerade
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;然后&lt;code&gt;mount /dev/loopXpY&lt;/code&gt;即可。&lt;/p&gt;
 &lt;/li&gt;
 &lt;/ul&gt;
-&lt;h2 id="usb-直通"&gt;USB 直通
-&lt;/h2&gt;&lt;h3 id="为什么要直通控制器"&gt;为什么要直通控制器？
+&lt;h2 id="usb-直通"&gt;&lt;a href="#usb-%e7%9b%b4%e9%80%9a" class="header-anchor"&gt;&lt;/a&gt;USB 直通
+&lt;/h2&gt;&lt;h3 id="为什么要直通控制器"&gt;&lt;a href="#%e4%b8%ba%e4%bb%80%e4%b9%88%e8%a6%81%e7%9b%b4%e9%80%9a%e6%8e%a7%e5%88%b6%e5%99%a8" class="header-anchor"&gt;&lt;/a&gt;为什么要直通控制器？
 &lt;/h3&gt;&lt;p&gt;直通宿主机的PCIe USB Controller就是相当于将其管理的整一棵USB树交给客户机进行管理，这可以使得客户机有更接近真机的体验。&lt;br&gt;
 控制器直通对设备热插拔的支持远比直通单个USB设备要好，而且一般一台电脑中的USB控制器的数量比较少，
 直通起来也远比单独指定USB Device/Hub要方便。&lt;/p&gt;
-&lt;h3 id="确定-iommu-group"&gt;确定 IOMMU Group
+&lt;h3 id="确定-iommu-group"&gt;&lt;a href="#%e7%a1%ae%e5%ae%9a-iommu-group" class="header-anchor"&gt;&lt;/a&gt;确定 IOMMU Group
 &lt;/h3&gt;&lt;p&gt;在继续之前需要确保你的系统符合以下要求：&lt;/p&gt;
 &lt;ul&gt;
 &lt;li&gt;CPU支持硬件虚拟化。&lt;/li&gt;
@@ -431,7 +431,7 @@ IOMMU Group 34:
 &lt;/code&gt;&lt;/pre&gt;&lt;p&gt;应该能够看到每一个PCI设备都被划分到了某个Group中。在直通时，每一个IOMMU Group是最小单位。
 也就是直通组内的任何一个设备都必须一起直通组内的的其余设备。&lt;br&gt;
 在我的系统上，每个USB Controller都在一个单独的IOMMU Group中，因此&lt;strong&gt;单从这个方面看&lt;/strong&gt;，我的每个controller可以单独直通。&lt;/p&gt;
-&lt;h3 id="确定具体物理接口与控制器的对应关系"&gt;确定具体物理接口与控制器的对应关系
+&lt;h3 id="确定具体物理接口与控制器的对应关系"&gt;&lt;a href="#%e7%a1%ae%e5%ae%9a%e5%85%b7%e4%bd%93%e7%89%a9%e7%90%86%e6%8e%a5%e5%8f%a3%e4%b8%8e%e6%8e%a7%e5%88%b6%e5%99%a8%e7%9a%84%e5%af%b9%e5%ba%94%e5%85%b3%e7%b3%bb" class="header-anchor"&gt;&lt;/a&gt;确定具体物理接口与控制器的对应关系
 &lt;/h3&gt;&lt;p&gt;由于不太可能将所有的控制器直通给客户机，所以有必要分清哪些接口是归宿主机管的。这也能够方便后续在两台机器之间切换设备。&lt;/p&gt;
 &lt;p&gt;先看看系统中有哪些USB控制器：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;lspci -nn &lt;span class="p"&gt;|&lt;/span&gt; grep USB
@@ -476,7 +476,7 @@ Bus 009 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
 &lt;/code&gt;&lt;/pre&gt;&lt;p&gt;通过以上步骤我们拿到的是USB控制器到USB Bus的映射。那怎么拿到对物理接口的映射？&lt;br&gt;
 拿一个USB设备把你电脑上的所有USB口插一遍即可😯&lt;br&gt;
 如果看到某个USB设备和某个控制器一起出现，那么该接口就是属于这个Controller控制的。&lt;/p&gt;
-&lt;h3 id="确定直通的控制器"&gt;确定直通的控制器
+&lt;h3 id="确定直通的控制器"&gt;&lt;a href="#%e7%a1%ae%e5%ae%9a%e7%9b%b4%e9%80%9a%e7%9a%84%e6%8e%a7%e5%88%b6%e5%99%a8" class="header-anchor"&gt;&lt;/a&gt;确定直通的控制器
 &lt;/h3&gt;&lt;p&gt;&lt;strong&gt;⚠️警告：接下来的操作可能会导致电脑Freeze/Kernel Panic，请提前保存好数据。&lt;/strong&gt;&lt;/p&gt;
 &lt;p&gt;既然现在拿到Controller和物理接口的对应关系，是不是就可以随心所欲分配了呢？&lt;br&gt;
 Humm&amp;hellip; 没这么简单。&lt;/p&gt;
@@ -500,8 +500,7 @@ Humm&amp;hellip; 没这么简单。&lt;/p&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nb"&gt;echo&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;1022 15b6&amp;#39;&lt;/span&gt; &amp;gt; /sys/bus/pci/drivers/vfio-pci/new_id
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;-device vfio-pci,host&lt;span class="o"&gt;=&lt;/span&gt;0c:00.0,bus&lt;span class="o"&gt;=&lt;/span&gt;swd3
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;-device vfio-pci,host&lt;span class="o"&gt;=&lt;/span&gt;0f:00.3,bus&lt;span class="o"&gt;=&lt;/span&gt;swd4
-&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;br&gt;
-&lt;p&gt;&lt;strong&gt;Hints:&lt;/strong&gt;&lt;/p&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;&lt;strong&gt;Hints:&lt;/strong&gt;&lt;/p&gt;
 &lt;ul&gt;
 &lt;li&gt;
 &lt;p&gt;带有ACS补丁的内核可以违反IOMMU Group作为最小直通单元的限制，
@@ -537,10 +536,10 @@ options vfio_iommu_type1 allow_unsafe_interrupts=1
 所以最后直接断电、重启就解决了😇&lt;/p&gt;
 &lt;/li&gt;
 &lt;/ul&gt;
-&lt;h2 id="gpu-直通"&gt;GPU 直通
+&lt;h2 id="gpu-直通"&gt;&lt;a href="#gpu-%e7%9b%b4%e9%80%9a" class="header-anchor"&gt;&lt;/a&gt;GPU 直通
 &lt;/h2&gt;&lt;p&gt;哈，终于到了最令人享受的一步了🥵&lt;br&gt;
 如果你不是RX 7000系的GPU，那建议先看看对于其他一般GPU的直通指南，因为接下来的部分有几步会和一般步骤完全相反🙃&lt;/p&gt;
-&lt;h3 id="隔离-gpu"&gt;隔离 GPU
+&lt;h3 id="隔离-gpu"&gt;&lt;a href="#%e9%9a%94%e7%a6%bb-gpu" class="header-anchor"&gt;&lt;/a&gt;隔离 GPU
 &lt;/h3&gt;&lt;p&gt;&lt;strong&gt;⚠️注意：显卡隔离成功后宿主机不会再通过此显卡输出画面，请确保有第二张显卡或者ssh连接。&lt;/strong&gt;&lt;/p&gt;
 &lt;p&gt;这一步的目的是让vfio-pci驱动在相应的设备驱动初始化设备之前绑定到设备上，使设备保持一个相对「干净」的状态。&lt;/p&gt;
 &lt;p&gt;这里使用在系统启动阶段提前加载vfio驱动的方式抢占设备，创建文件&lt;code&gt;/etc/modprobe.d/vfio.conf&lt;/code&gt;：&lt;/p&gt;
@@ -560,7 +559,7 @@ options vfio-pci disable_vga=1
 &lt;p&gt;虽然理论上来说应该也是可以像上面的USB Controller一样进行rebind的，但部分显卡被内核驱动初始化过之后说不定会遇到各种奇怪的reset bug，
 因此在内核驱动初始化设备之前抢占应该是最保险的方式。&lt;br&gt;
 有条件的可以尝试一下在UEFI中将启动显卡设置为核显，这样能避免UEFI对要直通的显卡进行初始化，从而&lt;del&gt;有几率&lt;/del&gt;让虚拟机的UEFI能够正常显示。&lt;/p&gt;
-&lt;h3 id="配置-qemu"&gt;配置 QEMU
+&lt;h3 id="配置-qemu"&gt;&lt;a href="#%e9%85%8d%e7%bd%ae-qemu" class="header-anchor"&gt;&lt;/a&gt;配置 QEMU
 &lt;/h3&gt;&lt;p&gt;使用下面的配置将隔离出的GPU添加到虚拟机中：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;-device vfio-pci,host&lt;span class="o"&gt;=&lt;/span&gt;03:00.0,bus&lt;span class="o"&gt;=&lt;/span&gt;rp2,addr&lt;span class="o"&gt;=&lt;/span&gt;00.0,multifunction&lt;span class="o"&gt;=&lt;/span&gt;on,romfile&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s2"&gt;&amp;#34;🤪&amp;#34;&lt;/span&gt; &lt;span class="c1"&gt;# 稍后揭晓&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;-device vfio-pci,host&lt;span class="o"&gt;=&lt;/span&gt;03:00.1,bus&lt;span class="o"&gt;=&lt;/span&gt;rp2,addr&lt;span class="o"&gt;=&lt;/span&gt;00.1
@@ -576,7 +575,7 @@ options vfio-pci disable_vga=1
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="c1"&gt;# Display&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;-vga std
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;-display gtk
-&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;注意只有vga显卡是跟PCI直通显卡兼容的。&lt;/p&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;注意只有VGA显卡是跟PCI直通显卡兼容的。&lt;/p&gt;
 &lt;p&gt;接下来还记得前面在配置CPU时的隐藏虚拟化选项吗？现在该它发挥作用了。&lt;br&gt;
 AMD的Windows驱动程序在检测到虚拟化环境时并不是像隔壁黄狗一样故意禁止你使用，而是会将直通的GPU当作是一块SR-IOV的vGPU。
 &lt;del&gt;隔壁想用这功能还得专门买驱动&lt;/del&gt; 然后只会为Windows提供一个虚拟的显示器，并不会产生物理输出，因此需要隐藏虚拟环境。&lt;/p&gt;
@@ -589,14 +588,14 @@ AMD的Windows驱动程序在检测到虚拟化环境时并不是像隔壁黄狗�
 &lt;p&gt;那么还需要修改以下文件来解除运行虚拟机的用户&lt;code&gt;memlock&lt;/code&gt;的限制：&lt;/p&gt;
 &lt;pre tabindex="0"&gt;&lt;code class="language-conf" data-lang="conf"&gt;# /etc/security/limits.conf
 windows - memlock unlimited
-&lt;/code&gt;&lt;/pre&gt;&lt;h3 id="vbios"&gt;VBIOS
+&lt;/code&gt;&lt;/pre&gt;&lt;h3 id="vbios"&gt;&lt;a href="#vbios" class="header-anchor"&gt;&lt;/a&gt;VBIOS
 &lt;/h3&gt;&lt;p&gt;&lt;del&gt;&lt;em&gt;&lt;strong&gt;最精彩的部分&lt;/strong&gt;&lt;/em&gt;&lt;/del&gt;&lt;/p&gt;
 &lt;p&gt;大多数GPU都需要向虚拟机传递一个VBIOS以正常工作，尤其是用作启动显卡的GPU。&lt;/p&gt;
 &lt;p&gt;除了从TechPowerUp和GPU-Z获取VBIOS外，还可以在Linux上尝试以下方式：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nb"&gt;echo&lt;/span&gt; &lt;span class="m"&gt;1&lt;/span&gt; &lt;span class="p"&gt;|&lt;/span&gt; sudo tee /sys/bus/pci/devices/0000:03:00.0/rom
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;sudo cat /sys/bus/pci/devices/0000:03:00.0/rom &amp;gt; 7900xt.rom
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nb"&gt;echo&lt;/span&gt; &lt;span class="m"&gt;0&lt;/span&gt; &lt;span class="p"&gt;|&lt;/span&gt; sudo tee /sys/bus/pci/devices/0000:03:00.0/rom
-&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;以下2个文件分别是从TechPowerUp下载以及从sysfs提取的：&lt;/p&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;以下两个文件分别是从TechPowerUp下载以及从sysfs提取的：&lt;/p&gt;
 &lt;pre tabindex="0"&gt;&lt;code&gt;252664.rom 7900xt.rom
 &lt;/code&gt;&lt;/pre&gt;&lt;p&gt;让我们&lt;code&gt;file&lt;/code&gt;一下：&lt;/p&gt;
 &lt;pre tabindex="0"&gt;&lt;code&gt;252664.rom: data
@@ -670,7 +669,7 @@ Code=90 90 90 90 90 f3 0f 1e fa 0f 1f 44 00 00 89 f6 48 03 77 18 &amp;lt;8b&amp;
 &lt;li&gt;在内核启动参数中添加&lt;code&gt;video=vesafb:off video=efifb:off video=simplefb:off&lt;/code&gt;后使用从sysfs提取的VBIOS。&lt;/li&gt;
 &lt;/ul&gt;
 &lt;p&gt;除了其余正常工作的情况外，剩下的表现就是Linux启动时会出现大量&lt;code&gt;DMCUB Error&lt;/code&gt;且没有显示信号输出。&lt;br&gt;
-在没有启用multifunction时，journal中会出现以下信息：&lt;/p&gt;
+在没有启用multifunction时，虚拟机的journal中会出现以下信息：&lt;/p&gt;
 &lt;blockquote&gt;
 &lt;p&gt;Dec 28 06:53:25 archlinux kernel: amdgpu 0000:00:05.0: amdgpu: System can&amp;rsquo;t access extended configuration space, please check!!&lt;/p&gt;
 &lt;/blockquote&gt;
@@ -688,23 +687,23 @@ Code=90 90 90 90 90 f3 0f 1e fa 0f 1f 44 00 00 89 f6 48 03 77 18 &amp;lt;8b&amp;
 &lt;p&gt;看到有不少在参数中添加&lt;code&gt;x-vga=on&lt;/code&gt;的，但似乎这只是一个针对Nvidia GPU的fix，添加后会直接报错。&lt;/p&gt;
 &lt;/li&gt;
 &lt;/ul&gt;
-&lt;h2 id="安全启动"&gt;安全启动
+&lt;h2 id="安全启动"&gt;&lt;a href="#%e5%ae%89%e5%85%a8%e5%90%af%e5%8a%a8" class="header-anchor"&gt;&lt;/a&gt;安全启动
 &lt;/h2&gt;&lt;p&gt;对于那些并没有将微软证书enroll到NVRAM模板文件中的发行版，例如Arch Linux，需要使用以下步骤手动注册证书并开启secure boot。&lt;/p&gt;
-&lt;h3 id="生成-pk-platform-key"&gt;生成 PK (Platform Key)
+&lt;h3 id="生成-pk-platform-key"&gt;&lt;a href="#%e7%94%9f%e6%88%90-pk-platform-key" class="header-anchor"&gt;&lt;/a&gt;生成 PK (Platform Key)
 &lt;/h3&gt;&lt;p&gt;先使用&lt;code&gt;openssl&lt;/code&gt;生成一对密钥：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;openssl req -newkey rsa:4096 -nodes -keyout private.key -x509 -days &lt;span class="m"&gt;3650&lt;/span&gt; -out pk.crt
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;本地使用，DN字段随便填写即可。其中private.key为私钥，pk.crt为公钥。&lt;/p&gt;
 &lt;p&gt;然后将PEM证书转换为DER证书：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;openssl x509 -in pk.crt -outform der -out pk.der
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;生成的pk.der就是可以被enroll的证书。&lt;/p&gt;
-&lt;h3 id="获取-microsoft-证书"&gt;获取 Microsoft 证书
+&lt;h3 id="获取-microsoft-证书"&gt;&lt;a href="#%e8%8e%b7%e5%8f%96-microsoft-%e8%af%81%e4%b9%a6" class="header-anchor"&gt;&lt;/a&gt;获取 Microsoft 证书
 &lt;/h3&gt;&lt;p&gt;KEK (Key Exchange Key): &lt;a class="link" href="https://go.microsoft.com/fwlink/p/?linkid=321185" target="_blank" rel="noopener"
 &gt;Microsoft Corporation KEK CA 2011&lt;/a&gt;&lt;br&gt;
 DB (Allowed Signature database): &lt;a class="link" href="https://go.microsoft.com/fwlink/?LinkId=321192" target="_blank" rel="noopener"
 &gt;Microsoft Windows Production CA 2011&lt;/a&gt;,
 &lt;a class="link" href="https://go.microsoft.com/fwlink/p/?LinkID=321194" target="_blank" rel="noopener"
 &gt;Microsoft Corporation UEFI CA 2011&lt;/a&gt;&lt;/p&gt;
-&lt;h3 id="注册证书并启用安全启动"&gt;注册证书并启用安全启动
+&lt;h3 id="注册证书并启用安全启动"&gt;&lt;a href="#%e6%b3%a8%e5%86%8c%e8%af%81%e4%b9%a6%e5%b9%b6%e5%90%af%e7%94%a8%e5%ae%89%e5%85%a8%e5%90%af%e5%8a%a8" class="header-anchor"&gt;&lt;/a&gt;注册证书并启用安全启动
 &lt;/h3&gt;&lt;p&gt;现在你应该有下面这些文件：&lt;/p&gt;
 &lt;pre tabindex="0"&gt;&lt;code&gt;MicCorKEKCA2011_2011-06-24.crt MicCorUEFCA2011_2011-06-27.crt MicWinProPCA2011_2011-10-19.crt
 pk.crt nvram.fd
@@ -718,7 +717,7 @@ pk.crt nvram.fd
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; --add-db &lt;span class="k"&gt;$(&lt;/span&gt;MS_GUID&lt;span class="k"&gt;)&lt;/span&gt; MicWinProPCA2011_2011-10-19.crt &lt;span class="se"&gt;\
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; --sb
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;将输出的&lt;code&gt;nvram_sec.fd&lt;/code&gt;用作NVRAM启动客户机，安全启动应该能正常开启。&lt;/p&gt;
-&lt;h2 id="配置目标系统"&gt;配置目标系统
+&lt;h2 id="配置目标系统"&gt;&lt;a href="#%e9%85%8d%e7%bd%ae%e7%9b%ae%e6%a0%87%e7%b3%bb%e7%bb%9f" class="header-anchor"&gt;&lt;/a&gt;配置目标系统
 &lt;/h2&gt;&lt;p&gt;接下来就是将安装调试好的虚拟机部署到目标系统上。&lt;br&gt;
 虚拟机进程将以非特权用户在目标机器上运行，并能够实现宿主机启动自动运行，客户机正常关闭时宿主机自动关机。
 这里使用systemd的user units来实现，请根据自己的需求进行调整。&lt;/p&gt;
@@ -742,13 +741,13 @@ pk.crt nvram.fd
 └── Windows10-21H2-LTSC-IoT.iso
 &lt;/code&gt;&lt;/pre&gt;&lt;p&gt;其中&lt;code&gt;tpm2-00.permall&lt;/code&gt;会由swtpm自动创建。&lt;br&gt;
 新系统需要的基本配置文件以及前面提及的用于VFIO直通的各种配置文件不再赘述，下面主要说明新增的文件。&lt;/p&gt;
-&lt;h3 id="udev-rules"&gt;Udev Rules
+&lt;h3 id="udev-rules"&gt;&lt;a href="#udev-rules" class="header-anchor"&gt;&lt;/a&gt;Udev Rules
 &lt;/h3&gt;&lt;p&gt;由于虚拟机进程是以非特权用户身份运行的，因此需要使用udev改变一些设备文件的权限：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="c1"&gt;# /etc/udev/rules.d/99-qemu.rules&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nv"&gt;SUBSYSTEM&lt;/span&gt;&lt;span class="o"&gt;==&lt;/span&gt;&lt;span class="s2"&gt;&amp;#34;vfio&amp;#34;&lt;/span&gt;, &lt;span class="nv"&gt;OWNER&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s2"&gt;&amp;#34;qemu&amp;#34;&lt;/span&gt;, &lt;span class="nv"&gt;GROUP&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s2"&gt;&amp;#34;qemu&amp;#34;&lt;/span&gt;, &lt;span class="nv"&gt;MODE&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s2"&gt;&amp;#34;0660&amp;#34;&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nv"&gt;SUBSYSTEM&lt;/span&gt;&lt;span class="o"&gt;==&lt;/span&gt;&lt;span class="s2"&gt;&amp;#34;block&amp;#34;&lt;/span&gt;, ENV&lt;span class="o"&gt;{&lt;/span&gt;DM_NAME&lt;span class="o"&gt;}==&lt;/span&gt;&lt;span class="s2"&gt;&amp;#34;Data-windows&amp;#34;&lt;/span&gt;, &lt;span class="nv"&gt;OWNER&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s2"&gt;&amp;#34;qemu&amp;#34;&lt;/span&gt;, &lt;span class="nv"&gt;GROUP&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s2"&gt;&amp;#34;qemu&amp;#34;&lt;/span&gt;, &lt;span class="nv"&gt;MODE&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s2"&gt;&amp;#34;0660&amp;#34;&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;由于udev不允许设备文件的所有者为非系统用户，因此将owner和group改为qemu，让非特权用户加入这个组就行。&lt;/p&gt;
-&lt;h3 id="dynamic-rebindservice"&gt;dynamic-rebind.service
+&lt;h3 id="dynamic-rebindservice"&gt;&lt;a href="#dynamic-rebindservice" class="header-anchor"&gt;&lt;/a&gt;dynamic-rebind.service
 &lt;/h3&gt;&lt;p&gt;前面在调试虚拟机的时候是手动对设备进行rebind的，这里使用systemd service使其能够实现开机自动rebind。&lt;/p&gt;
 &lt;p&gt;那你可能就要问了，为什么不像rebind GPU时一样使用/etc/modprobe.d来提前加载vfio驱动？&lt;br&gt;
 这个因不同内核而异。能够先于设备驱动模块提前加载VFIO的前提是得有设备驱动模块🤪&lt;br&gt;
@@ -759,7 +758,7 @@ pk.crt nvram.fd
 CONFIG_USB_XHCI_HCD=y
 &lt;/code&gt;&lt;/pre&gt;&lt;p&gt;那么恭喜你，你只能进行dynamic rebind。&lt;br&gt;
 原理很简单：内核模块的加载是在内核初始化完成后由systemd进行的。但内核在初始化过程中就会初始化设备并绑定驱动，
-如果某个设备驱动不是模块的话，其在systemd之前就已经被绑定了。&lt;/p&gt;
+如果某个设备驱动不是模块的话，其在systemd启动之前就已经被绑定了。&lt;/p&gt;
 &lt;p&gt;使用下面的systemd service进行rebind：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-ini" data-lang="ini"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="c1"&gt;# /etc/systemd/system/dynamic-rebind.service&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;[Unit]&lt;/span&gt;
@@ -787,7 +786,7 @@ CONFIG_USB_XHCI_HCD=y
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="na"&gt;WantedBy&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s"&gt;sysinit.target&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;值得注意的是这个service的执行时机应该尽可能早，最好在udevd开始之前就执行完成，否则会和udevd发生racing，导致journal里一堆error。&lt;br&gt;
 还有就是systemd的命令行不支持shell的&lt;code&gt;| &amp;gt; &amp;gt;&amp;gt;&lt;/code&gt;等运算符，需要像这样使用&lt;code&gt;sh -c&lt;/code&gt;的方式实现。&lt;/p&gt;
-&lt;h3 id="swtpmservice"&gt;swtpm.service
+&lt;h3 id="swtpmservice"&gt;&lt;a href="#swtpmservice" class="header-anchor"&gt;&lt;/a&gt;swtpm.service
 &lt;/h3&gt;&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-ini" data-lang="ini"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="c1"&gt;# /home/windows/.config/systemd/user/swtpm.service&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;[Unit]&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="na"&gt;Description&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s"&gt;TPM2 Emulator for QEMU&lt;/span&gt;
@@ -801,7 +800,7 @@ CONFIG_USB_XHCI_HCD=y
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;[Install]&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="na"&gt;WantedBy&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s"&gt;default.target&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;不需要加入&lt;code&gt;--terminate&lt;/code&gt;参数，以便于qemu重启时能够再次连接。&lt;/p&gt;
-&lt;h3 id="windowsservice"&gt;windows.service
+&lt;h3 id="windowsservice"&gt;&lt;a href="#windowsservice" class="header-anchor"&gt;&lt;/a&gt;windows.service
 &lt;/h3&gt;&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-ini" data-lang="ini"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="c1"&gt;# /home/windows/.config/systemd/user/windows.service&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;[Unit]&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="na"&gt;Description&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s"&gt;A QEMU service runs the Windows virtual machine&lt;/span&gt;
@@ -817,9 +816,10 @@ CONFIG_USB_XHCI_HCD=y
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;[Install]&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="na"&gt;WantedBy&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s"&gt;default.target&lt;/span&gt;
-&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;这里使用判断exit code的方式决定QEMU是否正常退出，再结合&lt;code&gt;/tmp/no-shutdown&lt;/code&gt; file flag来确定是否关机。最后请确保&lt;code&gt;qemu.sh&lt;/code&gt;有执行权限。&lt;/p&gt;
-&lt;h3 id="polkit-rules"&gt;Polkit Rules
-&lt;/h3&gt;&lt;p&gt;如果你现在直接尝试上面的windows.service那大概率是没法自动关机的，会被Access Denied。&lt;br&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;这里使用判断exit code的方式决定QEMU是否正常退出，再结合&lt;code&gt;/tmp/no-shutdown&lt;/code&gt; file flag来确定是否关机。&lt;br&gt;
+最后请确保&lt;code&gt;qemu.sh&lt;/code&gt;有执行权限。&lt;/p&gt;
+&lt;h3 id="polkit-rules"&gt;&lt;a href="#polkit-rules" class="header-anchor"&gt;&lt;/a&gt;Polkit Rules
+&lt;/h3&gt;&lt;p&gt;如果你现在直接尝试上面的windows.service那大概率是没法自动关机的，会Access Denied。&lt;br&gt;
 平时在console的local user能直接&lt;code&gt;poweroff&lt;/code&gt;关机应该是polkit开了洞。现在如果在service里试图关机，由于不是一个interactive环境，
 请求会被polkit直接拒绝。因此就像Udev Rules一样，我们也需要编写Polkit Rules来执行特权动作。&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-javascript" data-lang="javascript"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="c1"&gt;// /etc/polkit-1/rules.d/10-qemu-shutdown.rules
@@ -829,7 +829,7 @@ CONFIG_USB_XHCI_HCD=y
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="nx"&gt;polkit&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="nx"&gt;Result&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="nx"&gt;YES&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="p"&gt;}&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;});&lt;/span&gt;
-&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h3 id="启用服务"&gt;启用服务
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h3 id="启用服务"&gt;&lt;a href="#%e5%90%af%e7%94%a8%e6%9c%8d%e5%8a%a1" class="header-anchor"&gt;&lt;/a&gt;启用服务
 &lt;/h3&gt;&lt;p&gt;然后启用所有必要的服务：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="c1"&gt;# System services&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;sudo systemctl &lt;span class="nb"&gt;enable&lt;/span&gt; sshd
@@ -944,7 +944,7 @@ CONFIG_USB_XHCI_HCD=y
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="c1"&gt;# Run Guest Windows VM&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nb"&gt;exec&lt;/span&gt; qemu-system-x86_64 &lt;span class="s2"&gt;&amp;#34;&lt;/span&gt;&lt;span class="si"&gt;${&lt;/span&gt;&lt;span class="nv"&gt;qemu_args&lt;/span&gt;&lt;span class="p"&gt;[@]&lt;/span&gt;&lt;span class="si"&gt;}&lt;/span&gt;&lt;span class="s2"&gt;&amp;#34;&lt;/span&gt;
-&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h2 id="效果展示"&gt;效果展示
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h2 id="效果展示"&gt;&lt;a href="#%e6%95%88%e6%9e%9c%e5%b1%95%e7%a4%ba" class="header-anchor"&gt;&lt;/a&gt;效果展示
 &lt;/h2&gt;&lt;p&gt;&lt;img src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/img/result-01.webp"
 width="2560"
 height="1440"
@@ -974,7 +974,7 @@ class="gallery-image"
 data-flex-grow="177"
 data-flex-basis="426px"
 &gt;&lt;/p&gt;
-&lt;h2 id="reference"&gt;Reference
+&lt;h2 id="reference"&gt;&lt;a href="#reference" class="header-anchor"&gt;&lt;/a&gt;Reference
 &lt;/h2&gt;&lt;ul&gt;
 &lt;li&gt;&lt;a class="link" href="https://pve.sqlsec.com/4/2/#iommu-sr-iov" target="_blank" rel="noopener"
 &gt;硬件直通&lt;/a&gt;&lt;/li&gt;
