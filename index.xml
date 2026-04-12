@@ -1,4 +1,609 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Mirika's Blog</title><link>https://mirikaryu.github.io/</link><description>Recent content on Mirika's Blog</description><generator>Hugo -- gohugo.io</generator><language>zh-cn</language><copyright>Mirika</copyright><lastBuildDate>Wed, 31 Dec 2025 18:25:01 +0800</lastBuildDate><atom:link href="https://mirikaryu.github.io/index.xml" rel="self" type="application/rss+xml"/><item><title>QEMU/VFIO: Windows Guest 折腾记录</title><link>https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/</link><pubDate>Wed, 31 Dec 2025 18:25:01 +0800</pubDate><guid>https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/</guid><description>&lt;img src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/cover.webp" alt="Featured image of post QEMU/VFIO: Windows Guest 折腾记录" /&gt;&lt;h2 id="前言"&gt;&lt;a href="#%e5%89%8d%e8%a8%80" class="header-anchor"&gt;&lt;/a&gt;前言
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Mirika's Blog</title><link>https://mirikaryu.github.io/</link><description>Recent content on Mirika's Blog</description><generator>Hugo -- gohugo.io</generator><language>zh-cn</language><copyright>Mirika</copyright><lastBuildDate>Mon, 06 Apr 2026 17:10:04 +0800</lastBuildDate><atom:link href="https://mirikaryu.github.io/index.xml" rel="self" type="application/rss+xml"/><item><title>Xiaomi AX3000T AP 固件精简与配置：自定义 UBoot 与主线 OpenWrt</title><link>https://mirikaryu.github.io/post/openwrt-xiaomi_ax3000t/</link><pubDate>Mon, 06 Apr 2026 17:10:04 +0800</pubDate><guid>https://mirikaryu.github.io/post/openwrt-xiaomi_ax3000t/</guid><description>&lt;img src="https://mirikaryu.github.io/post/openwrt-xiaomi_ax3000t/cover.webp" alt="Featured image of post Xiaomi AX3000T AP 固件精简与配置：自定义 UBoot 与主线 OpenWrt" /&gt;&lt;h2 id="前言"&gt;&lt;a href="#%e5%89%8d%e8%a8%80" class="header-anchor"&gt;&lt;/a&gt;前言
+&lt;/h2&gt;&lt;p&gt;最近正在搭建一台5G CPE，因此需要找个 AP 来发射 WiFi 信号。最开始使用的方案是在软路由里面一个空闲的 M.2 M-Key 插槽上面插入一张
+转接 MT7922 进行射频，来来去去换了几次天线，倒腾了一个星期后发现信号质量甚至不如手机热点 😅。毕竟受限于发射功率
+（只有可怜的 3 dBm）只能使用 2.4 GHz 的频段，再加上只有 2X2 MIMO 以及不支持 WiFi-6 BeamForming 等技术的 debuff，
+这种情况也算是在意料之中了。&lt;/p&gt;
+&lt;p&gt;所以就在各种机缘巧合之下发现了这个 AX3000T，双频 WiFi-6 &lt;del&gt;反正 WiFi-7 6 GHz 在国内也别想用&lt;/del&gt; 和5根天线、完美的 OpenWrt 主线支持、
+相对简洁便携的外观、以及最重要的不到100元的价格。唯一美中不足的它的这4个网口全是只有千兆的。诶，但是，查阅相关资料
+可以发现其 SoC 和交换机之间的链路是有 2.5 Gbps 的，这也就意味着我们可以通过链路聚合实现并发时突破千兆的速度（有坑，往下看）。&lt;/p&gt;
+&lt;h2 id="准备工作"&gt;&lt;a href="#%e5%87%86%e5%a4%87%e5%b7%a5%e4%bd%9c" class="header-anchor"&gt;&lt;/a&gt;准备工作
+&lt;/h2&gt;&lt;p&gt;作为一名（自认为）合格的赛博洁癖患者，自己编译干净的固件自然是必不可少的一环。大体的环境准备工作可以
+参照&lt;a class="link" href="https://openwrt.org/docs/guide-developer/toolchain/buildsystem_essentials" target="_blank" rel="noopener"
+&gt;官方文档&lt;/a&gt;进行，编译时如果遇到其它
+缺少依赖项的问题再根据自己的环境灵活变通即可。&lt;/p&gt;
+&lt;p&gt;还有就是由于需要对 Uboot 进行自定义，因此 Hard Brick 的风险大大增加了 😇，最好还可以准备一条串口转 USB 的线以防万一。&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;观前提示&lt;/strong&gt; ⚠️&lt;br&gt;
+这&lt;strong&gt;不是&lt;/strong&gt;一篇完全新手向的文章，并且我也不能确定其中的所有操作是否正确无误。如果你不能理解在刷入过程中的每一步
+操作意味着什么，请&lt;strong&gt;立即停止&lt;/strong&gt;并严格按照主线 OpenWrt 的&lt;a class="link" href="https://openwrt.org/inbox/toh/xiaomi/ax3000t" target="_blank" rel="noopener"
+&gt;官方文档&lt;/a&gt;进行操作。
+本人不对任何 data loss 或者 bricking 负责。&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;h2 id="刷入-openwrt-主线固件"&gt;&lt;a href="#%e5%88%b7%e5%85%a5-openwrt-%e4%b8%bb%e7%ba%bf%e5%9b%ba%e4%bb%b6" class="header-anchor"&gt;&lt;/a&gt;刷入 OpenWrt 主线固件
+&lt;/h2&gt;&lt;p&gt;诶，等等，不是要自己编译固件吗？怎么直接刷主线固件了？这是因为主线固件的工具和环境相比我们的精简版完善得多，可以先在主线版本中
+确认自己的硬件信息、对总体的网络配置进行验证、以及在自定义固件出现奇怪行为的时候进行对照，总之，
+保留一份主线固件备用还是很有必要的。&lt;/p&gt;
+&lt;p&gt;然后就可以按照&lt;a class="link" href="https://openwrt.org/inbox/toh/xiaomi/ax3000t#flash_instructions" target="_blank" rel="noopener"
+&gt;文档&lt;/a&gt;的指引开 SSH，&lt;strong&gt;备份相关分区&lt;/strong&gt;，
+然后刷入 Uboot 和 OpenWrt。如果发现没法使用 &lt;code&gt;apk&lt;/code&gt; 下载 &lt;code&gt;kmod-mtd-rw&lt;/code&gt; 这个包，可以到以下 URL 寻找并手动下载这个包：&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;a class="link" href="https://downloads.openwrt.org/releases/" target="_blank" rel="noopener"
+&gt;https://downloads.openwrt.org/releases/&lt;/a&gt;&amp;lt;Distro 版本&amp;gt;/targets/mediatek/filogic/kmods/&amp;lt;内核版本&amp;gt;/&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;用 &lt;code&gt;scp&lt;/code&gt; 上传到路由器之后使用以下命令安装：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;apk add --allow-untrusted --force-non-repository ./&amp;lt;你的文件名&amp;gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;这里再次强调一下一定要备份 &lt;strong&gt;Factory&lt;/strong&gt; 这个分区，其它的分区如果不考虑换回原厂固件其实可以不太关注，但这个分区存放的是
+WiFi 校准数据，一机一份，丢了的话就喜提一台4口千兆交换机。&lt;/p&gt;
+&lt;hr&gt;
+&lt;p&gt;进入新的 OpenWrt 系统后我们可以使用这行命令来查看自己的交换机芯片：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;dmesg &lt;span class="p"&gt;|&lt;/span&gt; grep -e an8855 -e mtk_soc_eth
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;我的运气比较好，抽中的是 RD03v1 的版本，因此显示的是：&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;[ 2.208970] an8855-switch an8855-switch.2.auto: probe with driver an8855-switch failed with error -110&lt;br&gt;
+[ 2.224236] mtk_soc_eth 15100000.ethernet eth0: mediatek frame engine at 0xffffffc081580000, irq 75&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;然后使用 &lt;code&gt;cat /proc/mtd&lt;/code&gt; 来查看一下主线 ubootmod 版本的默认分区表：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code&gt;dev: size erasesize name
+mtd0: 00100000 00020000 &amp;#34;BL2&amp;#34;
+mtd1: 00040000 00020000 &amp;#34;Nvram&amp;#34;
+mtd2: 00040000 00020000 &amp;#34;Bdata&amp;#34;
+mtd3: 00200000 00020000 &amp;#34;Factory&amp;#34;
+mtd4: 00200000 00020000 &amp;#34;FIP&amp;#34;
+mtd5: 00040000 00020000 &amp;#34;crash&amp;#34;
+mtd6: 00040000 00020000 &amp;#34;crash_log&amp;#34;
+mtd7: 00040000 00020000 &amp;#34;KF&amp;#34;
+mtd8: 07000000 00020000 &amp;#34;ubi&amp;#34;
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;其中的 &lt;code&gt;BL2&lt;/code&gt;, &lt;code&gt;Factory&lt;/code&gt; 以及 &lt;code&gt;FIP&lt;/code&gt; 可以说是三个最重要的分区。&lt;code&gt;BL2&lt;/code&gt; 存放的是负责进行 DDR 等基础硬件初始化的
+Trusted Boot Firmware，&lt;code&gt;FIP&lt;/code&gt; (Firmware Image Package) 用于存放 Arm BL31 和 BL33 UBoot 固件。至于其它几个分区，
+&lt;code&gt;crash&lt;/code&gt;, &lt;code&gt;crash_log&lt;/code&gt; 和 &lt;code&gt;KF&lt;/code&gt; 分区 dump 出来之后查看其内容均为全空，&lt;code&gt;Nvram&lt;/code&gt; 用于存放原厂 UBoot 固件的环境变量，&lt;code&gt;Bdata&lt;/code&gt; 里面
+好像是一堆乱七八糟的密钥以及默认的 SSID/MAC/SN，如果不恢复原厂就可以不用理会。&lt;/p&gt;
+&lt;hr&gt;
+&lt;p&gt;这里有必要简单说一下这类硬路由设备在 OpenWrt 上的典型存储层次。&lt;/p&gt;
+&lt;p&gt;先从最下层的存储设备开始，这类设备一般使用的是廉价的 NOR/NAND Flash，并使用 SPI 总线与 SoC 连接。因此这类芯片表现出来的行为
+更像是只能顺序读写的字符设备而不是普通的块设备。除此之外，NAND Flash 在进行写入的时候要先将整个「擦除块」全部擦除后才能进行写入，
+而同时这类芯片写入寿命也不高，同一个块擦写次数过多就会导致该块永久损坏。&lt;/p&gt;
+&lt;p&gt;接着在内核中对于这类设备就有了第一个抽象层，MTD (Memory Technology Device)，如果在安装好的 OpenWrt 中执行 &lt;code&gt;ls /dev/mtd*&lt;/code&gt; 就能够
+看到这些设备。这一层仅仅只是对设备进行的简单封装，使得用户空间程序能够使用简单、统一的 syscall 来读写存储芯片。其中 &lt;code&gt;mtdX&lt;/code&gt; 就是
+第 X 个可读写的 MTD 分区的字符设备接口，&lt;code&gt;mtdXro&lt;/code&gt; 对应的就是只读接口，而 &lt;code&gt;mtdblockX&lt;/code&gt; 则是内核驱动在对应分区上虚拟出的块设备接口，
+能够让该分区使用块设备的接口进行读写。&lt;/p&gt;
+&lt;p&gt;至此，对于静态数据或者不会频繁写入的数据来说，已经能够直接通过上面这个 MTD 接口进行交互了，例如 Bootloader，Nvram 等分区。但
+对于需要频繁写入的数据来说直接使用此接口会造成严重的问题，&lt;del&gt;你也不想用一小会就报废了吧&lt;/del&gt;。所以，我们需要通过 UBI
+(Unsorted Block Images) 这个管理层进行控制。UBI 很像 LVM，但其主要用途是为了进行磨损均衡，即维护一个逻辑擦除块到物理擦除块的
+映射，使得每次写入都能尽可能的分摊到每个块上。UBI 也使用分卷进行管理，每个分卷和 MTD 的表现类似，提供字符设备和可选的块设备接口。&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;提示&lt;/strong&gt; ℹ️&lt;br&gt;
+到后面你可能会发现清除配置文件是通过直接移除再创建 &lt;code&gt;rootfs_data&lt;/code&gt; 这个 UBI 卷来实现的，这个过程是在 UBoot 中完成的，且并没有将
+其格式化为 UBIFS 文件系统。但为何系统仍然可以正常启动？难道是 UBI 创建分卷的时候会自动格式化？&lt;/p&gt;
+&lt;p&gt;如果我们在清除完数据之后再启动系统，查看 &lt;code&gt;dmesg&lt;/code&gt; 可以发现其实是内核在启动的时候帮我们完成了这一步：&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;[ 8.239123] UBIFS (ubi0:1): default file-system created&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;/blockquote&gt;
+&lt;br&gt;
+再向上就是我们相对熟悉的一般文件系统了，这里主要使用 UBIFS 和 SquashFS/EROFS。这里需要单独把 UBIFS 给拎出来，因为只有它是基于
+字符设备接口的文件系统，而其余两个都是基于块设备的。而至于具体的文件系统有什么特点此处不再展开，查阅资料即可。
+&lt;p&gt;更多信息可以查看&lt;a class="link" href="https://openwrt.org/docs/techref/flash.layout" target="_blank" rel="noopener"
+&gt;文档&lt;/a&gt;。&lt;/p&gt;
+&lt;hr&gt;
+&lt;p&gt;安装完主线固件后可以尝试一下 UBoot 的 TFTP 启动方式，后面我们很可能会频繁地使用这个方法来加载临时系统。&lt;/p&gt;
+&lt;p&gt;先将路由器下电，然后戳着 Reset 按钮再插上电源，等待指示灯变成蓝色后就可以松开了。将上位机的 IP 设置为 &lt;code&gt;192.168.1.254&lt;/code&gt; 并确保
+和路由器之间的网络可达。接着找到路由器需要的恢复镜像文件，
+主线固件默认为 &lt;code&gt;openwrt-mediatek-filogic-xiaomi_mi-router-ax3000t-ubootmod-initramfs-recovery.itb&lt;/code&gt;。将工作目录切换到该文件夹下，
+并运行一个 TFTP Server，这里推荐直接使用 &lt;code&gt;dnsmasq&lt;/code&gt;：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;sudo dnsmasq -i &amp;lt;连接路由器的链路名称&amp;gt; -d --port&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="m"&gt;0&lt;/span&gt; --enable-tftp --tftp-root&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="k"&gt;$(&lt;/span&gt;&lt;span class="nb"&gt;pwd&lt;/span&gt;&lt;span class="k"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;由于需要绑定的为特权端口 &lt;code&gt;69&lt;/code&gt;, 因此需要 Root 权限。使用 &lt;code&gt;-d&lt;/code&gt; 开启 debug 模式，&lt;code&gt;--port=0&lt;/code&gt; 禁用 DNS 功能，剩下的两个选项用于开启
+TFTP Server。&lt;/p&gt;
+&lt;p&gt;当你能够在输出中看到 &amp;ldquo;Send xxx&amp;rdquo; 的时候就说明 UBoot 已经获取到镜像文件并启动了。&lt;/p&gt;
+&lt;h2 id="配置自定义-openwrt-固件"&gt;&lt;a href="#%e9%85%8d%e7%bd%ae%e8%87%aa%e5%ae%9a%e4%b9%89-openwrt-%e5%9b%ba%e4%bb%b6" class="header-anchor"&gt;&lt;/a&gt;配置自定义 OpenWrt 固件
+&lt;/h2&gt;&lt;p&gt;我们先从 Github Mirror 拉取源码并进行 menuconfig：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;git clone https://github.com/openwrt/openwrt
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nb"&gt;cd&lt;/span&gt; openwrt
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;make menuconfig
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;由于我们的目标是配置出一个专为 AP 服务的精简固件，因此不需要去执行 &lt;code&gt;./scripts/feeds update -a&lt;/code&gt; 之类的操作，使用默认软件包即可。&lt;/p&gt;
+&lt;p&gt;然后就可以开始配置了，下文所有的配置都会放到&lt;a class="link" href="https://github.com/MirikaRyu/netcfg" target="_blank" rel="noopener"
+&gt;我的仓库&lt;/a&gt;中，可以使用 &lt;code&gt;git apply&lt;/code&gt; 直接
+应用这些 patches。&lt;/p&gt;
+&lt;h3 id="目标配置"&gt;&lt;a href="#%e7%9b%ae%e6%a0%87%e9%85%8d%e7%bd%ae" class="header-anchor"&gt;&lt;/a&gt;目标配置
+&lt;/h3&gt;&lt;p&gt;前3个 Target System, Subtarget, Target Profile 分别选择 MediaTek ARM, Filogic 8x0, Xiaomi AX3000T (U-Boot layout) 即可。&lt;/p&gt;
+&lt;p&gt;接下来在 Target Images 选项中可以看到以下选项：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;ramdisk&lt;/strong&gt;：是否构建 initramfs 镜像，关闭后不会生成 initramfs-* 镜像，不建议关闭。&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Root fs archives&lt;/strong&gt;：将编译出的 rootfs 进行归档方便查看。&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Root fs images&lt;/strong&gt;：选择镜像中的 rootfs 文件系统。EXT4 是可写的，不建议选。在剩下两个中据说某为的 EROFS 性能更好，因此这里
+选择 EROFS。&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Image Options&lt;/strong&gt;：配置根分区大小和选择是否持久化 &lt;code&gt;/var&lt;/code&gt; 目录。&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h3 id="构建选项"&gt;&lt;a href="#%e6%9e%84%e5%bb%ba%e9%80%89%e9%a1%b9" class="header-anchor"&gt;&lt;/a&gt;构建选项
+&lt;/h3&gt;&lt;p&gt;进入 Global build settings，里面绝大部分选项都不需要修改。&lt;/p&gt;
+&lt;p&gt;找到 Gernel build options 下的 Kernel build options，里面控制了内核相关的功能和编译选项，可根据具体需求更改。
+接下来把 Package build options 中的第 2,3,4 项都勾上，这三个选项分别是 &lt;code&gt;-ffuntion-sections --gc-sections&lt;/code&gt;, &lt;code&gt;-flto&lt;/code&gt; 以及使用号称
+速度最快的链接器（如果你发现有别的比它快，可以去提交 bug report 🤣）。不过需要注意的是可能有极少数包在开启 LTO 后会出问题，
+不过我还没有遇到过，因此先保持开启。&lt;/p&gt;
+&lt;p&gt;下面的加固选项 Hardening build options 也可根据自己的需求调整，具体每个选项是什么意思可以去询问 LLM，总体上每个等级开得越高，
+性能开销也会越大。在这种更看重安全性的场景中开高一些应该无所谓。&lt;/p&gt;
+&lt;hr&gt;
+&lt;p&gt;然后是 Advanced configuration options。&lt;/p&gt;
+&lt;p&gt;找到 &lt;code&gt;ccache&lt;/code&gt;，好东西，编译缓存，反复编译的时候能加加速。
+向下翻到 Target Options，里面有一个 Target Optimizations 的选项，里面默认开的是 &lt;code&gt;-Os&lt;/code&gt; 即优化占用空间，我们将它改成 &lt;code&gt;-O2&lt;/code&gt;，
+优化运行速度。当然我也不太确定开启后是否会造成不良影响，总之 &amp;ldquo;It works on my machine&amp;rdquo;。&lt;/p&gt;
+&lt;hr&gt;
+&lt;p&gt;最后这个 Image configuration 开启后可以设置一些系统基本信息，可按需配置。里面 Seperate feed repositories 中的选项基本用不上，
+可以全关了。&lt;/p&gt;
+&lt;h3 id="base-system--基本工具"&gt;&lt;a href="#base-system--%e5%9f%ba%e6%9c%ac%e5%b7%a5%e5%85%b7" class="header-anchor"&gt;&lt;/a&gt;Base system / 基本工具
+&lt;/h3&gt;&lt;p&gt;绝大多数选项的说明都非常清晰，作为 AP 的话，相比默认配置，可以移除 &lt;code&gt;dnsmasq&lt;/code&gt;, &lt;code&gt;firewall&lt;/code&gt; 这两个包。&lt;/p&gt;
+&lt;p&gt;然后如果想进一步精简，可以打开 Customize busybox options，删除里面不需要的工具：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Archival Utilities&lt;/strong&gt;：这边就是一堆压缩格式，喜欢啥选啥。&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Coreutils&lt;/strong&gt;：不要删太猛，有一次把 &lt;code&gt;date&lt;/code&gt; 给删除了，结果发现 &lt;code&gt;sysupgrade&lt;/code&gt; 依赖这个来校验时间。&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Debian Utilities&lt;/strong&gt;：这里我只保留了一个 &lt;code&gt;which&lt;/code&gt;。&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Editor&lt;/strong&gt;：有编辑配置文件的需要，因此 &lt;code&gt;vi&lt;/code&gt; 相关的选项基本拉满了。&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Networking Utilities&lt;/strong&gt;：这里我只保留了 &lt;code&gt;IPv6 support&lt;/code&gt;, &lt;code&gt;netstat&lt;/code&gt;, &lt;code&gt;ntpd&lt;/code&gt;, &lt;code&gt;ping/ping6&lt;/code&gt; 以及 &lt;code&gt;udhcpc/udhcpc6&lt;/code&gt;，
+其它 &lt;code&gt;ifconfig/route&lt;/code&gt; 之类的功能将会被 &lt;code&gt;iproute2&lt;/code&gt; (Network -&amp;gt; Routing and Redirection -&amp;gt; &lt;code&gt;ip-full&lt;/code&gt;) 这个包完全替代。&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;System Logging Utilities&lt;/strong&gt;：中的 &lt;code&gt;logger&lt;/code&gt; 同样被 &lt;code&gt;sysupgrade&lt;/code&gt; 依赖，不能删除。&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;如果你发现某个很重要的功能在这里面没有开启，那就说明肯定是有其它的替代，不需要再去勾选；如果你需要某个工具的完整版本，
+可以去 Network/Utilities 之类的大分类下去找找，找到后再回来取消勾选这里的即可。&lt;/p&gt;
+&lt;p&gt;这里面也有几个不能删的选项，比如 &lt;code&gt;uci&lt;/code&gt;，用于简化使用脚本进行系统配置，初始配置生成依赖这玩意，删除之后会导致没有默认 IP
+从而无法使用 SSH 连接。至于 &lt;code&gt;apk-mbedtls&lt;/code&gt; 和 &lt;code&gt;ca-bundle&lt;/code&gt;，如果确定不再需要通过包管理器安装额外的软件包就可以直接扬了。&lt;/p&gt;
+&lt;p&gt;接下来 AX3000T 作为 AP 还需要&lt;strong&gt;添加&lt;/strong&gt; &lt;code&gt;bridger&lt;/code&gt; 这个软件包用于从 WLAN 到 LAN 的 WED (Wireless Ethernet Dispatch)。
+根据文档的说法，这个功能可以将无线流量直接卸载到硬件进行转发从而缓解 CPU 压力。&lt;/p&gt;
+&lt;p&gt;但是，还记得开头说的使用链路聚合的坑吗？&lt;/p&gt;
+&lt;p&gt;如果你像我一样打算使用链路聚合的话这个包和 WED 功能就没有什么用处了，实际测试下来开启与否 CPU 都会被吃满。根据 LLM 的说法，
+像链路聚合这种 packet 必须要经过内核处理的协议，是无法直接通过硬件进行转发的。&lt;/p&gt;
+&lt;p&gt;其它信息可以进一步查看具体的&lt;a class="link" href="https://openwrt.org/docs/guide-user/network/wifi/wed" target="_blank" rel="noopener"
+&gt;Wiki&lt;/a&gt;页面。&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;提示&lt;/strong&gt; ℹ️&lt;br&gt;
+这个包需要 LLVM 的 eBPF 工具链，从头编译的时候需要编译整个 LLVM 🙃。&lt;br&gt;
+有人向 Kernel 提了 Patch 来在内核中实现这个包的功能，不过目前貌似中道崩殂了？反正 6.12 的这个版本应该是依然需要这个包的。&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;h3 id="network--网络工具"&gt;&lt;a href="#network--%e7%bd%91%e7%bb%9c%e5%b7%a5%e5%85%b7" class="header-anchor"&gt;&lt;/a&gt;Network / 网络工具
+&lt;/h3&gt;&lt;p&gt;在下面那一堆未分类的选项中只需要保留作为依赖项的 &lt;code&gt;iw&lt;/code&gt; 以及 &lt;code&gt;uclient-fetch&lt;/code&gt;。由于不需要进行 WAN 拨号，因此可以移除 &lt;code&gt;ppp&lt;/code&gt; 这个包。&lt;/p&gt;
+&lt;p&gt;然后在 Routing and Redirection 中选择前述的 &lt;code&gt;ip-full&lt;/code&gt;。&lt;/p&gt;
+&lt;p&gt;最后进入 WirelessAPD 这个分类，其中包含控制 WiFi 认证的相关工具。如果不需要让这个路由器去连接其它 WiFi 的话，这里只需要选择
+&lt;code&gt;hostapd-basic-mbedtls&lt;/code&gt; 即可。下面的 &lt;code&gt;wpad-*&lt;/code&gt; 其实是 &lt;code&gt;hostapd&lt;/code&gt; + &lt;code&gt;wpa-supplicant&lt;/code&gt;，选了之后会多一个 RADIUS 服务器。&lt;/p&gt;
+&lt;h3 id="kernel-modules--内核模块"&gt;&lt;a href="#kernel-modules--%e5%86%85%e6%a0%b8%e6%a8%a1%e5%9d%97" class="header-anchor"&gt;&lt;/a&gt;Kernel modules / 内核模块
+&lt;/h3&gt;&lt;p&gt;这里面绝大部分的功能都用不上，在关闭了 &lt;code&gt;ppp&lt;/code&gt;, &lt;code&gt;firewall&lt;/code&gt; 等功能之后，可以在这里把一些无用的内核模块也关闭掉。
+像是 Netfilter Extensions 下的模块可以全部删除，Network Support 中只需要开启链路聚合必要的 &lt;code&gt;kmod-bonding&lt;/code&gt; 以及被 &lt;code&gt;bridger&lt;/code&gt; 包
+依赖的几个 &lt;code&gt;kmod-sched-*&lt;/code&gt; 即可。&lt;/p&gt;
+&lt;p&gt;除此之外，还可以使用 &lt;code&gt;make kernel_menuconfig&lt;/code&gt; 来单独调整内核的配置，不过似乎用处不太大，没有太多可以调整的。&lt;/p&gt;
+&lt;h3 id="其它配置"&gt;&lt;a href="#%e5%85%b6%e5%ae%83%e9%85%8d%e7%bd%ae" class="header-anchor"&gt;&lt;/a&gt;其它配置
+&lt;/h3&gt;&lt;p&gt;剩余的选项的描述应该也非常清晰了，大多数都是作为依赖项出现被强制选择的。有几点需要说明的如下：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;Boot Loaders 中只选择第一个，即包含 &amp;ldquo;mt7981,ddr3&amp;rdquo; 的那个即可。&lt;/li&gt;
+&lt;li&gt;Utilities -&amp;gt; Boot Loaders 中有一个 &lt;code&gt;uboot-envtools&lt;/code&gt;，由于后面要折腾 UBoot，没有这个基本寸步难行，不建议删除。
+但由于这个包会创建 &lt;code&gt;/etc/config/ubootenv&lt;/code&gt; 这个意义不明的文件，要是真想删除可以在调试完 UBoot 后再删。&lt;/li&gt;
+&lt;li&gt;Libraries 下有一个 &lt;code&gt;libustream-mbedtls&lt;/code&gt; 这个包，好像是用来给包管理器做 HTTPS 认证的，如果前面保留了包管理器这里也要保留这个。&lt;/li&gt;
+&lt;/ul&gt;
+&lt;hr&gt;
+&lt;p&gt;在以上配置工作完成之后就可以先使用以下命令试试能否正常编译：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;make -j&lt;span class="k"&gt;$(&lt;/span&gt;nproc&lt;span class="k"&gt;)&lt;/span&gt; &lt;span class="nv"&gt;V&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;s
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;如果嫌输出太乱可以去掉 &lt;code&gt;V=s&lt;/code&gt; 等编译失败的时候再加上。&lt;/p&gt;
+&lt;h2 id="配置自定义-uboot-固件"&gt;&lt;a href="#%e9%85%8d%e7%bd%ae%e8%87%aa%e5%ae%9a%e4%b9%89-uboot-%e5%9b%ba%e4%bb%b6" class="header-anchor"&gt;&lt;/a&gt;配置自定义 UBoot 固件
+&lt;/h2&gt;&lt;p&gt;我们自定义 UBoot 的目的主要为开启 Netconsole，规范分区以及自定义启动行为。&lt;/p&gt;
+&lt;h3 id="开启-netconsole"&gt;&lt;a href="#%e5%bc%80%e5%90%af-netconsole" class="header-anchor"&gt;&lt;/a&gt;开启 Netconsole
+&lt;/h3&gt;&lt;p&gt;在刚见到这玩意的时候还以为是串口的完全上位替代品，怎么用怎么舒服，直到某次重启之后发现 UBoot 卡死了&amp;hellip; 😵&lt;/p&gt;
+&lt;p&gt;尽管如此，我依旧认为这是在路由器这类难以直接连接 tty 的设备上很重要的一个功能，它能够让你在不用拆机连接串口的情况下获得一个 tty。
+但不知为何网上的对这个功能讨论度低的可怜，就连 OpenWrt 的文档中都没怎么提到 🤔。&lt;/p&gt;
+&lt;p&gt;我们先来看看主线 UBoot 的 Netconsole 如何开启。&lt;/p&gt;
+&lt;p&gt;小米 AX3000T 默认的主线 UBoot 其实已经在编译选项中开启了对该功能的支持：&lt;code&gt;CONFIG_NETCONSOLE=y&lt;/code&gt;，因此我们只需要配置以下几个环境
+变量即可使用，可以在 OpenWrt 中使用 &lt;code&gt;fw_setenv&lt;/code&gt; 进行设置：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;ipaddr&lt;/strong&gt;：本机 IP，上位机连接的时候需要的 IP，这里就按照默认值 &lt;code&gt;192.168.1.1&lt;/code&gt;，不过要注意不要和主路由的 IP 冲突。&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;ncip&lt;/strong&gt;：目标主机的 IP，也就是使用 Netconsole 机器的 IP，这里和 OpenWrt 默认值保持一致，设为 &lt;code&gt;192.168.1.254&lt;/code&gt;。&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;stdin&lt;/strong&gt;：标准输入，这里必须设置为 &lt;code&gt;nc&lt;/code&gt;，LLM 可能会让你加上 &lt;code&gt;serial&lt;/code&gt;，但这里不行，原因稍后揭晓。&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;stdout&lt;/strong&gt;：标准输出，同上，必须设为 &lt;code&gt;nc&lt;/code&gt;。&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;stderr&lt;/strong&gt;：标准错误输出，同上，必须设为 &lt;code&gt;nc&lt;/code&gt;。&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;接下来我们就可以在上位机连接 Netconsole 了。首先确保本机 IP 已经设为上面的 &lt;code&gt;ncip&lt;/code&gt; 且和路由器之间是可达的，
+然后可以使用 &lt;code&gt;dl&lt;/code&gt; 目录下 UBoot 源码中的 &lt;code&gt;tools/netconsole&lt;/code&gt; 这个脚本连接，注意该脚本依赖于 &lt;code&gt;openbsd-netcat&lt;/code&gt; 或者是 &lt;code&gt;socat&lt;/code&gt;：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;./netconsole 192.168.1.1
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;如果上面的脚本出现了奇怪的问题的话可以试试下面这个简化版本（依赖于 &lt;code&gt;openbsd-netcat&lt;/code&gt;），注意按 &amp;lt;Ctrl-c&amp;gt; 会直接退出：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="cp"&gt;#! /usr/bin/env sh
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;stty -icanon -echo
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;nc -u -l -p &lt;span class="m"&gt;6666&lt;/span&gt; -b
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;stty sane
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;如果不出意外的话，重启路由器后应该能够在终端中出现 OpenWrt 的启动选择界面，按 &amp;lt;Esc&amp;gt; 即可退出至 UBoot 命令行。&lt;/p&gt;
+&lt;hr&gt;
+&lt;p&gt;接下来看看在我们的自定义固件中要如何配置。&lt;/p&gt;
+&lt;p&gt;首先有必要来说一下这玩意非常离谱的一点：UBoot 的 console 初始化是串行且阻塞的。这也就意味着如果出于任何原因，Netconsole 没有
+初始化成功，那 UBoot 就会一直卡在这个地方。换句话说，如果一直启用 Netconsole，则每次开机时在局域网内必须有一个 IP 为 &lt;code&gt;ncip&lt;/code&gt;
+的设备，否则 UBoot 不会启动 🫪。这个问题我们在下面配置启动流程的时候再解决。&lt;/p&gt;
+&lt;p&gt;然后我们来修复 stdio 只能使用一个 console 的问题。只需要在 Uboot 的 config 中加入以下几行配置：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code&gt;CONFIG_CONSOLE_MUX=y
+CONFIG_SYS_CONSOLE_IS_IN_ENV=y
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;第一个配置开启了 UBoot 的终端多路复用功能，使得可以同时处理多个来源的输入/输出，只有这样才能将 stdio 的 3 个值设为
+&lt;code&gt;serial,nc&lt;/code&gt;（并没有接串口验证是否真的可以 multiplex 🤪）。第二个则是显式指明了可以在环境变量中设置输入输出流。
+&lt;del&gt;虽然默认配置好像就可以&lt;/del&gt;&lt;/p&gt;
+&lt;p&gt;更多 UBoot Netconsole 的用法可以查阅&lt;a class="link" href="https://docs.u-boot.org/en/latest/usage/netconsole.html" target="_blank" rel="noopener"
+&gt;文档&lt;/a&gt;。&lt;/p&gt;
+&lt;hr&gt;
+&lt;p&gt;现在你可能又会遇到一个问题：这些配置文件在哪里，我要怎么修改？&lt;/p&gt;
+&lt;p&gt;这些机器特定的 UBoot 配置均以补丁文件的形式存放在 &lt;code&gt;packages/boot/uboot-mediatek/patches&lt;/code&gt; 目录下，像这台 AX3000T 的补丁文件名就叫
+&lt;code&gt;440-add-xiaomi_mi-router-ax3000t.patch&lt;/code&gt;。一般来说，修改这些文件要使用 OpenWrt 专门处理 patches 的机制，即 Quilt。&lt;/p&gt;
+&lt;p&gt;但是，虽然是个昏招，显然不如直接修改补丁文件要来的直接。我们这里对整个项目的改动并不大，也不用考虑提交给上游，因此可以直接修改
+补丁文件然后祈祷上游不要对这个文件再做什么改动 (&lt;del&gt;又不是不能用&lt;/del&gt;)。就是修改的时候要比较小心，需要遵守 patch 文件的格式。如果构建时
+报错 &amp;ldquo;Failed to apply patch&amp;rdquo; 之类的，就回来检查一下格式。Patch 文件的具体格式询问 LLM 即可。&lt;/p&gt;
+&lt;h3 id="规范默认分区"&gt;&lt;a href="#%e8%a7%84%e8%8c%83%e9%bb%98%e8%ae%a4%e5%88%86%e5%8c%ba" class="header-anchor"&gt;&lt;/a&gt;规范默认分区
+&lt;/h3&gt;&lt;p&gt;我们的目标是将整个系统的分区表变成下面这样：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code&gt;dev: size erasesize name
+mtd0: 00100000 00020000 &amp;#34;BL2&amp;#34;
+mtd1: 00080000 00020000 &amp;#34;Env&amp;#34;
+mtd2: 00200000 00020000 &amp;#34;Factory&amp;#34;
+mtd3: 00200000 00020000 &amp;#34;FIP&amp;#34;
+mtd4: 07120000 00020000 &amp;#34;Sys&amp;#34;
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;上面这个是在 OpwnWrt 上使用 &lt;code&gt;cat /proc/mtd&lt;/code&gt; 输出的。需要注意的是像这种使用 MTD 的嵌入式设备的分区方式，不同于常见的桌面设备
+使用 GPT 这类分区表，是通过写死在设备树里的配置划分的。而 UBoot 和 Kernel 又各自使用一份设备树，也就是 UBoot 和内核看到的
+分区表和设备其实是可以不一样的。因此如果我们想统一整个系统的分区表，就要分别修改 UBoot 和内核的设备树。&lt;/p&gt;
+&lt;p&gt;我们在上面提到的 patch 中翻找一下，应该能够找到在 &lt;code&gt;spi_nand@0&lt;/code&gt; 下的 &lt;code&gt;partitions&lt;/code&gt;，其中的一个 entry 长成下面这样：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-dts" data-lang="dts"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nf"&gt;partition&lt;/span&gt;&lt;span class="o"&gt;@&lt;/span&gt;&lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="cm"&gt; &lt;/span&gt;&lt;span class="p"&gt;{&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="na"&gt;label&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="s"&gt;&amp;#34;bl2&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="na"&gt;reg&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="mh"&gt;0x00&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="mh"&gt;0x100000&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;};&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;具体含义如下：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code&gt;partition@形式起始地址 {
+label = &amp;#34;显示的标签&amp;#34;;
+reg = &amp;lt;真实起始地址 分区大小&amp;gt;;
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;后面内核设备树的定义方式也是类似的。&lt;/p&gt;
+&lt;p&gt;然后我们就可以给分区改名，或者将分区进行合并了。注意要计算好合并后的大小和偏移量以及不要去动那3个分区即可。&lt;/p&gt;
+&lt;p&gt;我这边对分区名进行了更改，将 &lt;code&gt;Nvram&lt;/code&gt; 和 &lt;code&gt;Bdata&lt;/code&gt; 分区合并为 &lt;code&gt;Env&lt;/code&gt; 分区，同时将 &lt;code&gt;crash&lt;/code&gt;, &lt;code&gt;crash_log&lt;/code&gt;, &lt;code&gt;KF&lt;/code&gt; 和 &lt;code&gt;ubi&lt;/code&gt; 分区合并为了
+一个大的 &lt;code&gt;Sys&lt;/code&gt; 分区：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-dts" data-lang="dts"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nf"&gt;partition&lt;/span&gt;&lt;span class="o"&gt;@&lt;/span&gt;&lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="cm"&gt; &lt;/span&gt;&lt;span class="p"&gt;{&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="na"&gt;label&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="s"&gt;&amp;#34;BL2&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="na"&gt;reg&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="mh"&gt;0x00&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="mh"&gt;0x100000&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;};&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nf"&gt;partition&lt;/span&gt;&lt;span class="o"&gt;@&lt;/span&gt;&lt;span class="mi"&gt;100000&lt;/span&gt;&lt;span class="cm"&gt; &lt;/span&gt;&lt;span class="p"&gt;{&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="na"&gt;label&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="s"&gt;&amp;#34;Env&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="na"&gt;reg&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="mh"&gt;0x100000&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="mh"&gt;0x80000&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;};&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nf"&gt;partition&lt;/span&gt;&lt;span class="o"&gt;@&lt;/span&gt;&lt;span class="mi"&gt;180000&lt;/span&gt;&lt;span class="cm"&gt; &lt;/span&gt;&lt;span class="p"&gt;{&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="na"&gt;label&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="s"&gt;&amp;#34;Factory&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="na"&gt;reg&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="mh"&gt;0x180000&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="mh"&gt;0x200000&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;};&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nf"&gt;partition&lt;/span&gt;&lt;span class="o"&gt;@&lt;/span&gt;&lt;span class="mi"&gt;380000&lt;/span&gt;&lt;span class="cm"&gt; &lt;/span&gt;&lt;span class="p"&gt;{&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="na"&gt;label&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="s"&gt;&amp;#34;FIP&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="na"&gt;reg&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="mh"&gt;0x380000&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="mh"&gt;0x200000&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;};&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nf"&gt;partition&lt;/span&gt;&lt;span class="o"&gt;@&lt;/span&gt;&lt;span class="mi"&gt;580000&lt;/span&gt;&lt;span class="cm"&gt; &lt;/span&gt;&lt;span class="p"&gt;{&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="na"&gt;label&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="s"&gt;&amp;#34;Sys&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="na"&gt;reg&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="mh"&gt;0x580000&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="mh"&gt;0x7120000&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;};&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h3 id="自定义启动行为"&gt;&lt;a href="#%e8%87%aa%e5%ae%9a%e4%b9%89%e5%90%af%e5%8a%a8%e8%a1%8c%e4%b8%ba" class="header-anchor"&gt;&lt;/a&gt;自定义启动行为
+&lt;/h3&gt;&lt;p&gt;UBoot 在启动时执行的各种逻辑是通过设置环境变量来实现的，而主线固件的逻辑让强迫症有点抓狂了 😡。下面就来重新实现自己的逻辑。&lt;/p&gt;
+&lt;p&gt;首先配置一些参数：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code class="language-conf" data-lang="conf"&gt;ipaddr=192.168.1.1
+ncip=192.168.1.254
+serverip=192.168.1.254
+led_rec=blue:status
+led_pwr=yellow:status
+console=earlycon=uart8250,mmio32,0x11002000 console=ttyS0
+loadaddr=0x46000000
+bootconf=config-1
+bootfile=recovery.itb
+bootfile_upd=sysupgrade.itb
+bootargs=console=ttyS0,115200n8 console_msg_format=syslog
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;这里 Netconsole 的相关参数仅设置 &lt;code&gt;ncip&lt;/code&gt; 即可，不要动 stdio 的三个变量，其余配置保持原来的默认值即可。我这里还修改了 &lt;code&gt;bootfile&lt;/code&gt;
+和 &lt;code&gt;bootfile_upd&lt;/code&gt;，这两个变量代表了在后面使用 TFTP 从服务器获取相关镜像文件时的文件名。&lt;/p&gt;
+&lt;p&gt;接下来只保留我们需要的菜单功能，即默认启动、TFTP Recovery、TFTP Production 和恢复出厂：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code class="language-conf" data-lang="conf"&gt;bootdelay=2
+bootmenu_delay=2
+bootmenu_default=0
+bootmenu_0=Default Boot=run bootcmd
+bootmenu_1=TFTP Recovery Boot=run boot_tftp_recovery
+bootmenu_2=TFTP Production Boot=run boot_tftp_production
+bootmenu_3=Reset Factory Settings=run reset_factory; reset
+bootmenu_4=Reboot=reset
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;这里没有直接设置标题的原因是 &lt;code&gt;$ver&lt;/code&gt; 这个变量必须被动态替换才能生效，因此需要专门的逻辑来实现。&lt;/p&gt;
+&lt;p&gt;然后先实现两个 TFTP Boot：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code class="language-conf" data-lang="conf"&gt;boot_tftp_production=tftpboot $loadaddr $bootfile_upd; bootm $loadaddr#$bootconf
+boot_tftp_recovery=led $led_rec on; while true; do tftpboot $loadaddr $bootfile &amp;amp;&amp;amp; bootm $loadaddr#$bootconf; sleep 1; done
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;逻辑都比较简单，先使用 &lt;code&gt;tftpboot&lt;/code&gt; 加载镜像到指定的内存然后直接 &lt;code&gt;bootm&lt;/code&gt;。对于 &lt;code&gt;boot_tftp_recovery&lt;/code&gt; 来说就是再多打开一个
+恢复指示灯并死循环进行 TFTP Boot。&lt;/p&gt;
+&lt;p&gt;现在来看看如何从 UBI 文件系统中启动 OpenWrt：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code class="language-conf" data-lang="conf"&gt;ubi_name=Sys
+ubi_vol_fit_name=fit
+ubi_vol_dat_name=rootfs_data
+ubi_read_fit=ubi part $ubi_name; ubi read $loadaddr $ubi_vol_fit_name &amp;amp;&amp;amp; iminfo $loadaddr
+ubi_init_dat=ubi part $ubi_name; if ubi check $ubi_vol_dat_name; then else ubi create $ubi_vol_dat_name - dynamic; fi
+ubi_boot=if run ubi_read_fit &amp;amp;&amp;amp; run ubi_init_dat; then bootm $loadaddr#$bootconf; fi
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;由于我们将原本的 &lt;code&gt;ubi&lt;/code&gt; 改成了 &lt;code&gt;Sys&lt;/code&gt;，因此这里要手动指定名称，但分卷的名称依然与主线一致。当执行 &lt;code&gt;ubi_boot&lt;/code&gt; 的时候，先选中分区，
+然后从 &lt;code&gt;fit&lt;/code&gt; 分卷加载镜像并进行校验，成功后再检查 &lt;code&gt;rootfs_data&lt;/code&gt; 分卷，没有则创建，如果能够成功完成上述步骤就使用 &lt;code&gt;bootm&lt;/code&gt; 启动。&lt;/p&gt;
+&lt;hr&gt;
+&lt;p&gt;接下来处理环境变量持久化和恢复出厂的问题。&lt;/p&gt;
+&lt;p&gt;主线 UBoot 将环境变量放在 &lt;code&gt;ubootenv&lt;/code&gt; 和 &lt;code&gt;ubootenv2&lt;/code&gt; 分卷当中，好处是有冗余备份和磨损均衡。我的选择是将环境变量放在合并后
+的 &lt;code&gt;Env&lt;/code&gt; 分区中，有 512KiB 的空间，即4个擦除块的大小。这个大小是不用考虑 UBI 了，只能使用 Raw MTD，不过虽说 NAND Flash 不耐擦，
+但对于这种配置完成后基本不动的机器来说10万+的擦写次数也够用好多年了。&lt;/p&gt;
+&lt;p&gt;将 UBoot Env 放在 MTD 分区中还需要对原来的 config 做出一些更改，将原来 config 中的 ubi/redundent 的配置替换为如下配置：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code class="language-conf" data-lang="conf"&gt;CONFIG_ENV_IS_IN_MTD=y
+CONFIG_ENV_MTD_DEV=&amp;#34;Env&amp;#34;
+CONFIG_ENV_SIZE=0x60000
+CONFIG_ENV_OFFSET=0x0
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;这几行指定了环境变量放在一个叫 &lt;code&gt;Env&lt;/code&gt; 的 MTD 分区上，并设定最大能够写入的大小为 0x60000 字节，写入位置距离该分区开头为 0x0。
+由于紧接着的就是 &lt;code&gt;Factory&lt;/code&gt; 分区，因此这里留下了一个擦除块大小的 Guard Area。&lt;/p&gt;
+&lt;p&gt;环境变量问题主要是如何实现 First Boot，即第一次启动或者恢复出厂后自动写入，而其余时候自动加载已保存的变量：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code class="language-conf" data-lang="conf"&gt;env_auto_init=if test &amp;#34;$env_inited&amp;#34; = &amp;#34;1&amp;#34;; then else setenv env_inited 1; saveenv; fi
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;其实也很简单，定义一个 Flag，首次启动的时候初始化后保存，再次启动的时候如果探测到这个标志则跳过写入即可。主线的实现方式是使用
+一个自修改变量进行标记，本质是一样的，就是会更绕一些。&lt;/p&gt;
+&lt;p&gt;恢复出厂就直接将存放环境变量的 &lt;code&gt;Env&lt;/code&gt; 分区和系统配置的 &lt;code&gt;rootfs_data&lt;/code&gt; 分卷擦除即可：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code class="language-conf" data-lang="conf"&gt;mtd_env_name=Env
+reset_factory=mtd erase $mtd_env_name; ubi part $ubi_name; ubi remove $ubi_vol_dat_name
+&lt;/code&gt;&lt;/pre&gt;&lt;hr&gt;
+&lt;p&gt;现在还要确保 Netconsole 不会在启动时把整个 UBoot 给卡住。&lt;/p&gt;
+&lt;p&gt;由于 Netconsole 使用的是 UDP，因此我首先考虑的是能否将 &lt;code&gt;ncip&lt;/code&gt; 设置为广播地址从而规避找不到设备的问题。从结果上看，找不到设备的
+问题似乎解决了，但现在只能在上位机收到 Netconsole 的 stdout 却无法回传 stdin。&lt;/p&gt;
+&lt;p&gt;然后尝试的做法是看看 UBoot 中有没有一种机制可以在网络连接失败后自动跳过 Netconsole 的初始化，找半天就找到一个 &lt;code&gt;netretry=no&lt;/code&gt;，
+但是显然也是无效的。&lt;/p&gt;
+&lt;p&gt;所以现在剩下的方法只有在每次启动时判断是否开启 Netconsole。但 UBoot 里好像也没有什么靠谱的检测手段，&lt;code&gt;ping&lt;/code&gt; 一个不存在的地址必须
+等待 ARP 失败计数耗尽才返回，那现在就只能依靠用户来手动指定了。&lt;/p&gt;
+&lt;p&gt;这边我选择的是 Opt-out，即默认开启，需要手动设置 &lt;code&gt;no_nc=1&lt;/code&gt; 来关闭 Netconsole，配置如下：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code class="language-conf" data-lang="conf"&gt;check_nc=if test &amp;#34;$no_nc&amp;#34; = &amp;#34;1&amp;#34;; then else setenv stdin serial,nc; setenv stdout serial,nc; setenv stderr serial,nc; fi
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;注意这行代码&lt;strong&gt;必须&lt;/strong&gt;在自动环境变量保存后才能执行，否则会将临时设置的 stdio 变量持久化。&lt;/p&gt;
+&lt;hr&gt;
+&lt;p&gt;最后再来实现按键、灯光和 Preboot 的逻辑。&lt;/p&gt;
+&lt;p&gt;按键检测比较简单，逻辑如下：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code class="language-conf" data-lang="conf"&gt;check_mesh=if button mesh; then run boot_tftp_recovery; fi
+check_reset=if button reset; then led $led_rec on; run reset_factory; reset; fi
+set_title=setenv bootmenu_title &amp;#34; [0;34m( ( ( [1;39mOpenWrt[0;34m ) ) ) [33m${ver}[0m&amp;#34;
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;主线的 Mesh 按钮是没有定义功能的，但如果每次想启动 Recovery Ramdisk 都要去戳 Reset 按钮好像有点太蠢了，所以我这里将 Mesh 按钮
+定义为直接进行 TFTP Recovery Boot，而 Reset 按钮则是进行恢复出厂。动态设置 &lt;code&gt;bootmenu_title&lt;/code&gt; 的逻辑也放在了这里。&lt;/p&gt;
+&lt;p&gt;但如果把以上的逻辑放在 &lt;code&gt;bootcmd&lt;/code&gt; 中执行的话那需要在 &lt;code&gt;bootmenu_delay&lt;/code&gt; 结束后才会被触发，因此这里需要用到 UBoot 的 Preboot 功能，
+使其能够在 UBoot 刚初始化完成，在 &lt;code&gt;boot_delay&lt;/code&gt; 之前就执行逻辑。该功能在主线没有开启，需要在 config 下加入这一行：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code class="language-conf" data-lang="conf"&gt;CONFIG_USE_PREBOOT=y
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;然后就可以定义 &lt;code&gt;preboot&lt;/code&gt; 环境变量：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code class="language-conf" data-lang="conf"&gt;preboot=led $led_pwr on; run check_reset; run check_mesh; run env_auto_init; run set_title; run check_nc
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;以及一个 &lt;code&gt;bootcmd&lt;/code&gt;：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code class="language-conf" data-lang="conf"&gt;bootcmd=run ubi_boot; run boot_tftp_recovery
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;这里和主线固件不一样的是在恢复模式下路由器的指示灯会变成紫色 🫨。&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;注意&lt;/strong&gt; ⚠️&lt;br&gt;
+永远确保任何一个启动路径最后都有个 Fallback 兜底，或者是永远能够拿到 UBoot Shell，这样只要 UBoot 没死都能救得回来。&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;h2 id="配置自定义内核设备树"&gt;&lt;a href="#%e9%85%8d%e7%bd%ae%e8%87%aa%e5%ae%9a%e4%b9%89%e5%86%85%e6%a0%b8%e8%ae%be%e5%a4%87%e6%a0%91" class="header-anchor"&gt;&lt;/a&gt;配置自定义内核设备树
+&lt;/h2&gt;&lt;p&gt;内核这边的修改相比 UBoot 就要轻松多了，这边主要修改几个网口的名称以及分区表。&lt;/p&gt;
+&lt;p&gt;在 &lt;code&gt;target/linux/mediatek/dts&lt;/code&gt; 这个目录下应该能够找到 &lt;code&gt;mt7981b-xiaomi-mi-router-common.dtsi&lt;/code&gt;
+和 &lt;code&gt;mt7981b-xiaomi-mi-router-ax3000t-ubootmod.dts&lt;/code&gt;，我们只需要修改这两个设备树文件。&lt;/p&gt;
+&lt;h3 id="修改网口名称"&gt;&lt;a href="#%e4%bf%ae%e6%94%b9%e7%bd%91%e5%8f%a3%e5%90%8d%e7%a7%b0" class="header-anchor"&gt;&lt;/a&gt;修改网口名称
+&lt;/h3&gt;&lt;p&gt;先打开带 &amp;ldquo;common&amp;rdquo; 的那个文件，直接在里面搜索 &amp;ldquo;wan&amp;rdquo;，应该会出来两个地方，分别对应联发科的 MT7531AE 以及 AN8855 两种交换机，
+可以都修改了，找到每个 &lt;code&gt;port&lt;/code&gt; 中的 &lt;code&gt;label&lt;/code&gt;，改成喜欢的名字即可。不过两个交换机中都各有一个和其它有点不同的 &lt;code&gt;port&lt;/code&gt;，我猜测这个
+是交换机连接 SoC 的端口，就不需要修改了。&lt;/p&gt;
+&lt;h3 id="修改内核分区表"&gt;&lt;a href="#%e4%bf%ae%e6%94%b9%e5%86%85%e6%a0%b8%e5%88%86%e5%8c%ba%e8%a1%a8" class="header-anchor"&gt;&lt;/a&gt;修改内核分区表
+&lt;/h3&gt;&lt;p&gt;操作和 UBoot 的大同小异，依旧是先打开带 &amp;ldquo;common&amp;rdquo; 的设备树文件，找到 &lt;code&gt;spi_nand&lt;/code&gt;，该合并的合并，该删除的删除，不要动那3个分区。
+然后打开另一个 &amp;ldquo;ubootmod&amp;rdquo; 的设备树文件，计算好 &lt;code&gt;Sys&lt;/code&gt; 分区的起始地址和偏移量再修改即可。&lt;/p&gt;
+&lt;p&gt;唯一需要注意的是内核设备树这边可以添加 &lt;code&gt;read-only;&lt;/code&gt; 只读属性，添加了这个属性的分区如果想被写入需要加载 &lt;code&gt;mtd-rw&lt;/code&gt; 这个内核模块。&lt;/p&gt;
+&lt;h2 id="编译新固件并刷入"&gt;&lt;a href="#%e7%bc%96%e8%af%91%e6%96%b0%e5%9b%ba%e4%bb%b6%e5%b9%b6%e5%88%b7%e5%85%a5" class="header-anchor"&gt;&lt;/a&gt;编译新固件并刷入
+&lt;/h2&gt;&lt;p&gt;完成以上步骤之后就可以进行完整的构建了，构建产物在 &lt;code&gt;bin/targets/mediatek/filogic&lt;/code&gt; 这个目录下。&lt;/p&gt;
+&lt;p&gt;如果你不放心编译出来的固件是否正常，可以拿 &lt;code&gt;openwrt-mediatek-filogic-xiaomi_mi-router-ax3000t-ubootmod-preloader.bin&lt;/code&gt; 这个文件
+和下载的官方 ubootmod 的版本对比一下是否一致（&lt;code&gt;xxd&lt;/code&gt; 是 &lt;code&gt;vim&lt;/code&gt; 的一部分，可以使用 &lt;code&gt;tinyxxd&lt;/code&gt; 替代）：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;xxd openwrt-mediatek-filogic-xiaomi_mi-router-ax3000t-ubootmod-preloader.bin &amp;gt; /tmp/my.hex
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;xxd openwrt-25.12.2-mediatek-filogic-xiaomi_mi-router-ax3000t-ubootmod-preloader.bin &amp;gt; /tmp/official.hex
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;diff /tmp/my.hex /tmp/official.hex
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;如果以上的 diff 结果一致或者只有编译时间和文件尾部的 32B 的校验值不一样的话那就说明编译过程基本没出什么问题。&lt;/p&gt;
+&lt;hr&gt;
+&lt;p&gt;接下来就要刷入我们编译好的固件了。&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;警告 ⚠️：刷写 UBoot 的过程中出现错误或者 UBoot 本身有问题可能会导致必须使用串口或者编程器修复&lt;/strong&gt;&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;先通过 UBoot 的 TFTP 启动&lt;strong&gt;主线&lt;/strong&gt;的 initramfs recovery 镜像，和刷主线 UBoot 类似，先加载 &lt;code&gt;mtd-rw&lt;/code&gt;，然后再上传自己的镜像并使用
+以下命令刷入：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;mtd write /tmp/openwrt-mediatek-filogic-xiaomi_mi-router-ax3000t-ubootmod-bl31-uboot.fip FIP
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;然后务必校验刷入是否成功：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;mtd verify /tmp/openwrt-mediatek-filogic-xiaomi_mi-router-ax3000t-ubootmod-bl31-uboot.fip FIP
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;BL2 preloader 就没有刷写的必要性了，毕竟前面已经比对过内容其实是一样的。&lt;/p&gt;
+&lt;p&gt;确认刷写成功后重启路由器，如果没出什么岔子现在在 UBoot Netconsole 上应该能够看见新的 Bootmenu 了。&lt;/p&gt;
+&lt;p&gt;接下来我们使用 TFTP Boot 启动&lt;strong&gt;自己编译的&lt;/strong&gt; initramfs recovery 镜像，并将 sysupgrade 镜像上传。然后使用以下命令格式化
+新的 MTD 分区（如果你的分区表不一样请勿照搬）：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;ubidetach -p /dev/mtd4
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;ubiformat -y /dev/mtd4
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;ubiattach -p /dev/mtd4
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;如果遇到在 detach 的时候遇到 &amp;ldquo;Device or resource busy&amp;rdquo; 的错误，这是可能是由于有几个奇怪的服务和内核线程占用了该 UBI 卷。直接使用
+&lt;code&gt;mtd erase&lt;/code&gt; 暴力抹除该分区，擦除完成后重启即可生效。但是注意这样做会丢失原来统计的擦除计数，不利于磨损均衡。&lt;/p&gt;
+&lt;p&gt;格式化完新分区后可以直接使用 &lt;code&gt;sysupgrade&lt;/code&gt; 完成安装：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;sysupgrade -n /tmp/openwrt-mediatek-filogic-xiaomi_mi-router-ax3000t-ubootmod-squashfs-sysupgrade.itb
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h2 id="配置路由器-ap-模式"&gt;&lt;a href="#%e9%85%8d%e7%bd%ae%e8%b7%af%e7%94%b1%e5%99%a8-ap-%e6%a8%a1%e5%bc%8f" class="header-anchor"&gt;&lt;/a&gt;配置路由器 AP 模式
+&lt;/h2&gt;&lt;h3 id="系统整体配置"&gt;&lt;a href="#%e7%b3%bb%e7%bb%9f%e6%95%b4%e4%bd%93%e9%85%8d%e7%bd%ae" class="header-anchor"&gt;&lt;/a&gt;系统整体配置
+&lt;/h3&gt;&lt;p&gt;设置 Root 密码：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;passwd
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;&lt;code&gt;/etc/config&lt;/code&gt; 系统配置：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-ucode" data-lang="ucode"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nx"&gt;config&lt;/span&gt; &lt;span class="nx"&gt;system&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;hostname&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;&amp;lt;Your hostname&amp;gt;&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;timezone&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;CST-8&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;zonename&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;Asia/Shanghai&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;ttylogin&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;0&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;log_size&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;128&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;urandom_seed&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;0&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;compat_version&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;1.0&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nx"&gt;config&lt;/span&gt; &lt;span class="nx"&gt;timeserver&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;ntp&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;enabled&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;1&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;enable_server&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;1&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;list&lt;/span&gt; &lt;span class="nx"&gt;server&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;0.openwrt.pool.ntp.org&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;list&lt;/span&gt; &lt;span class="nx"&gt;server&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;1.openwrt.pool.ntp.org&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;list&lt;/span&gt; &lt;span class="nx"&gt;server&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;2.openwrt.pool.ntp.org&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;list&lt;/span&gt; &lt;span class="nx"&gt;server&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;3.openwrt.pool.ntp.org&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h3 id="网络配置"&gt;&lt;a href="#%e7%bd%91%e7%bb%9c%e9%85%8d%e7%bd%ae" class="header-anchor"&gt;&lt;/a&gt;网络配置
+&lt;/h3&gt;&lt;p&gt;OpenWrt 中的网络配置集中在 &lt;code&gt;/etc/config/network&lt;/code&gt; 这个文件中。&lt;/p&gt;
+&lt;p&gt;先定义一个 loopback interface:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-ucode" data-lang="ucode"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nx"&gt;config&lt;/span&gt; &lt;span class="nx"&gt;interface&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;loopback&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;device&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;lo&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;proto&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;static&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;list&lt;/span&gt; &lt;span class="nx"&gt;ipaddr&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;127.0.0.1/8&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;然后进行 LACP 链路聚合，定义一个聚合设备：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-ucode" data-lang="ucode"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nx"&gt;config&lt;/span&gt; &lt;span class="nx"&gt;device&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;name&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;bond0&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;type&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;bonding&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;list&lt;/span&gt; &lt;span class="nx"&gt;ports&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;lan2&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;list&lt;/span&gt; &lt;span class="nx"&gt;ports&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;lan3&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;policy&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;802.3ad&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;lacp_rate&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;fast&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;monitor_interval&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;1000&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;xmit_hash_policy&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;layer3+4&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;这里将 &lt;code&gt;lan2&lt;/code&gt;, &lt;code&gt;lan3&lt;/code&gt; 两个网口用于同主路由进行聚合，上面这些聚合的参数必须与主路由上设置的完全一致。&lt;/p&gt;
+&lt;p&gt;关于链路聚合需要说明的一点是，只有并发请求才能够完全占满聚合的带宽。当然 &lt;code&gt;blance-rr&lt;/code&gt; 除外，但这玩意会让包乱序到达，
+导致吞吐量下降，实用性不强。&lt;/p&gt;
+&lt;p&gt;接下来声明一个网桥设备，即交换机，也是这个路由器本身：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-ucode" data-lang="ucode"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nx"&gt;config&lt;/span&gt; &lt;span class="nx"&gt;device&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;name&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;br0&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;type&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;bridge&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;list&lt;/span&gt; &lt;span class="nx"&gt;ports&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;bond0&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;list&lt;/span&gt; &lt;span class="nx"&gt;ports&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;lan0&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;list&lt;/span&gt; &lt;span class="nx"&gt;ports&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;lan1&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;将聚合设备 &lt;code&gt;bond0&lt;/code&gt; 以及剩余的两个 LAN 接口加入网桥，两个无线链路会在其配置文件中指定加入该网桥。&lt;/p&gt;
+&lt;p&gt;然后给这个网桥分配静态 IP 等参数：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-ucode" data-lang="ucode"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nx"&gt;config&lt;/span&gt; &lt;span class="nx"&gt;interface&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;lan&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;device&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;br0&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;proto&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;static&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;list&lt;/span&gt; &lt;span class="nx"&gt;ipaddr&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;192.168.1.2/24&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;list&lt;/span&gt; &lt;span class="nx"&gt;ip6addr&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;fd11:4514:0721::2/48&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;gateway&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;192.168.1.1&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;list&lt;/span&gt; &lt;span class="nx"&gt;dns&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;192.168.1.1&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h3 id="无线配置"&gt;&lt;a href="#%e6%97%a0%e7%ba%bf%e9%85%8d%e7%bd%ae" class="header-anchor"&gt;&lt;/a&gt;无线配置
+&lt;/h3&gt;&lt;p&gt;编辑 &lt;code&gt;/etc/config/wireless&lt;/code&gt;：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-ucode" data-lang="ucode"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nx"&gt;config&lt;/span&gt; &lt;span class="nx"&gt;wifi&lt;/span&gt;&lt;span class="o"&gt;-&lt;/span&gt;&lt;span class="nx"&gt;device&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;radio0&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;type&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;mac80211&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;path&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;platform/soc/18000000.wifi&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;band&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;2g&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;channel&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;auto&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;htmode&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;HE40&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;txpower&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;30&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;country&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;CN&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nx"&gt;config&lt;/span&gt; &lt;span class="nx"&gt;wifi&lt;/span&gt;&lt;span class="o"&gt;-&lt;/span&gt;&lt;span class="nx"&gt;iface&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;wlan0&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;device&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;radio0&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;network&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;lan&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;mode&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;ap&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;ssid&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;&amp;lt;Your SSID&amp;gt;&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;encryption&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;sae&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;ieee80211w&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;2&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;key&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;&amp;lt;Your Passwd&amp;gt;&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;以上是一个 2.4 GHz 频段的配置，5 GHz 基本就是复制粘贴一份。其中具体每项配置是什么含义该如何选择
+在&lt;a class="link" href="https://openwrt.org/docs/guide-user/network/wifi/basic" target="_blank" rel="noopener"
+&gt;这里&lt;/a&gt;已经有很详细的说明了，此处不再赘述。&lt;/p&gt;
+&lt;p&gt;最后如果要开启 WEB 功能，需要在 &lt;code&gt;/etc/modules.conf&lt;/code&gt; 中手动指定模块加载参数，重启生效：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code class="language-conf" data-lang="conf"&gt;options mt7915e wed_enable=Y
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;虽然说开启了链路聚合之后 PPE 就不能加速从 WLAN 到 LAN 的流量了，但兴许 WLAN 之间的流量依然可以加速 🤔？&lt;/p&gt;
+&lt;h3 id="uboot-环境变量修改"&gt;&lt;a href="#uboot-%e7%8e%af%e5%a2%83%e5%8f%98%e9%87%8f%e4%bf%ae%e6%94%b9" class="header-anchor"&gt;&lt;/a&gt;UBoot 环境变量修改
+&lt;/h3&gt;&lt;p&gt;由于我们修改了存放 UBoot 环境变量的位置，因此需要修改 &lt;code&gt;/etc/fw_env.config&lt;/code&gt; 来指明新位置：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code&gt;# Device Offset Size EraseSize
+/dev/mtd1 0x0 0x60000 0x20000
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;默认配置文件结尾有个莫名其妙的数字，删掉后工具才能够正常工作。&lt;/p&gt;
+&lt;p&gt;在我的网络环境下，主路由已经占用了 &lt;code&gt;192.168.1.1&lt;/code&gt; 这个 IP 了，这就需要将 UBoot 的 IP 进行更改以免造成冲突：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;fw_setenv ipaddr 192.168.1.2
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;别忘了将 Netconsole 关掉：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;fw_setenv no_nc &lt;span class="m"&gt;1&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h2 id="自定义-nfc-标签内容"&gt;&lt;a href="#%e8%87%aa%e5%ae%9a%e4%b9%89-nfc-%e6%a0%87%e7%ad%be%e5%86%85%e5%ae%b9" class="header-anchor"&gt;&lt;/a&gt;自定义 NFC 标签内容
+&lt;/h2&gt;&lt;p&gt;这台小米 AX3000T 还带了一个通过 I2C 总线连接的 NFC 芯片，用于非接触连接 WiFi，如果你只是想将标签里的内容更新为自己的 SSID，直接
+使用&lt;a class="link" href="https://github.com/Caian/xinfc" target="_blank" rel="noopener"
+&gt;这个项目&lt;/a&gt;并按照 Readme 进行操作即可。&lt;/p&gt;
+&lt;p&gt;但如果你想往这个标签里写点有意思的东西就可以继续往下看。&lt;/p&gt;
+&lt;p&gt;这个标签里的数据格式叫做 NDEF，是由 NFC 论坛搓出来的标准，涵盖了各种数据格式。我们可以在上位机使用 Python 的 &lt;code&gt;ndeflib&lt;/code&gt; 这个库
+实现对 NDEF 数据的编解码。比如现在我想将我的博客 URI 写到标签里，就可以用下面的 Python 脚本生成 payload：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-python" data-lang="python"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="ch"&gt;#! /usr/bin/env python&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kn"&gt;import&lt;/span&gt; &lt;span class="nn"&gt;ndef&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kn"&gt;import&lt;/span&gt; &lt;span class="nn"&gt;os&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;URI&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s2"&gt;&amp;#34;https://mirikaryu.github.io&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;result&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="sa"&gt;b&lt;/span&gt;&lt;span class="s2"&gt;&amp;#34;&amp;#34;&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;join&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;ndef&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;message_encoder&lt;/span&gt;&lt;span class="p"&gt;([&lt;/span&gt;&lt;span class="n"&gt;ndef&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;UriRecord&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;URI&lt;/span&gt;&lt;span class="p"&gt;)]))&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;result&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="nb"&gt;bytes&lt;/span&gt;&lt;span class="p"&gt;([&lt;/span&gt;&lt;span class="mh"&gt;0x03&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="nb"&gt;len&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;result&lt;/span&gt;&lt;span class="p"&gt;)])&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="n"&gt;result&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="sa"&gt;b&lt;/span&gt;&lt;span class="s2"&gt;&amp;#34;&lt;/span&gt;&lt;span class="se"&gt;\xfe&lt;/span&gt;&lt;span class="s2"&gt;&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;os&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;write&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;result&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;这个库编码出的数据不带 TLV 类型标签，因此需要手动补上。如果有其它想写入的数据类型，
+查看&lt;a class="link" href="https://ndeflib.readthedocs.io/en/stable/index.html" target="_blank" rel="noopener"
+&gt;文档&lt;/a&gt;并询问 LLM 即可。&lt;/p&gt;
+&lt;p&gt;然后我们将脚本的输出重定向到 bin 文件：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;./make.py &amp;gt; nfc.bin
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;那现在要怎么将这个 payload 写入呢？&lt;/p&gt;
+&lt;p&gt;由于原项目没有提供写入任意 payload 的功能，因此我基于原项目的数据重新写了一个程序，能够写入至多 160 Bytes 的
+payload（原项目就是这么多 🫠），超出的部分会被截断。另外由于交叉编译环境配置很麻烦，因此这个程序能够不依赖 libc 和 CRT，
+理论上找一个&lt;strong&gt;任意&lt;/strong&gt;的 AArch64 GCC/Clang 即可编译然后在路由器上使用。&lt;/p&gt;
+&lt;p&gt;先从&lt;a class="link" href="https://github.com/MirikaRyu/netcfg/tree/main/ap-ax3000t/tools/nfc.cpp" target="_blank" rel="noopener"
+&gt;仓库&lt;/a&gt;获取文件 &lt;code&gt;nfc.cpp&lt;/code&gt;，并使用这行命令编译出
+可执行程序 &lt;code&gt;nfc&lt;/code&gt;：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;aarch64-linux-gnu-g++ -std&lt;span class="o"&gt;=&lt;/span&gt;c++20 -O2 -nostdlib -ffreestanding -static nfc.cpp -o nfc
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;如果你不想或者不会找新的编译器，切换到 OpenWrt 目录，使用现成的也可以：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nb"&gt;cd&lt;/span&gt; tmp
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;../staging_dir/toolchain-aarch64_cortex-a53_gcc-14.3.0_musl/bin/aarch64-openwrt-linux-g++ -std&lt;span class="o"&gt;=&lt;/span&gt;c++20 -nostdlib -o nfc nfc.cpp
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;上面具体 toolchain 的路径会因具体版本而不同。&lt;/p&gt;
+&lt;p&gt;接着将 &lt;code&gt;nfc.bin&lt;/code&gt; 和 &lt;code&gt;nfc&lt;/code&gt; 上传到路由器。执行以下命令备份原有内容 &lt;del&gt;好像备份了也没啥用&lt;/del&gt;：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;./nfc dump &amp;gt; nfc.bak
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;提示&lt;/strong&gt; ℹ️&lt;br&gt;
+如果你在编译时将读写的 buffer 开得比较大，可能会发现 dump 出来的数据从 896 字节开始又有新的内容，这些内容可能与 NFC 芯片的
+配置/锁定区有关，不建议触碰。&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;然后将自己的 payload 写入，写入完成后可以再 dump 出来查看其内容：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;./nfc write &amp;lt; nfc.bin
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;./nfc dump &lt;span class="p"&gt;|&lt;/span&gt; hexdump
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;写入完成之后拿手机解锁后贴上去应该就能够自动打开设置的 URI 了。&lt;/p&gt;
+&lt;hr&gt;
+&lt;p&gt;如果你不想自己编译的话。。。。大概可能也算还有一个办法。&lt;/p&gt;
+&lt;p&gt;依旧，你得先准备好要写入的 payload，不过这次要以不带前后缀的十六进制纯文本的形式输出，每个字节之间按照空格分隔，所以你可能
+要让 LLM 改改上面的那个脚本。然后在路由器上安装 &lt;code&gt;i2c-tools&lt;/code&gt;：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;apk add i2c-tools
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;接下来使用下面这个提示词让 LLM 帮你完成一个 Shell 脚本：&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;帮我完成一个运行在小米 AX3000T OpenWrt ash 环境下的 Shell 脚本，要求如下：&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;从标准输入接收一个纯文本的 NFC NDEF payload，每个字节均按照空格分隔，字节不包含前后缀，总字节数不得超过 160&lt;/li&gt;
+&lt;li&gt;将读取到的字节使用 i2c-tools 中的 i2ctransfer 写入总线 0，地址为 0x57 的 NFC 芯片的 0x10 寄存器中&lt;/li&gt;
+&lt;li&gt;该设备为双字节寻址的设备，只有 i2ctransfer 能够处理这种设备&lt;/li&gt;
+&lt;/ol&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;最后将生成的 Shell 脚本和 payload 上传到路由器，按照 LLM 给出的步骤进行操作，然后祈祷能够成功。&lt;/p&gt;
+&lt;p&gt;什么？你问我为什么不用后者？那是因为我写完代码之后才发现可以用 &lt;code&gt;i2ctransfer&lt;/code&gt; 处理双字节寻址的设备 🤡。&lt;/p&gt;
+&lt;h2 id="使用体验"&gt;&lt;a href="#%e4%bd%bf%e7%94%a8%e4%bd%93%e9%aa%8c" class="header-anchor"&gt;&lt;/a&gt;使用体验
+&lt;/h2&gt;&lt;p&gt;系统安装完成后 &lt;code&gt;fit&lt;/code&gt; 分区占用 9.4 MiB，&lt;code&gt;rootfs_data&lt;/code&gt; 容量为 96.9 MiB：&lt;/p&gt;
+&lt;pre tabindex="0"&gt;&lt;code&gt;UBI version: 1
+Count of UBI devices: 1
+UBI control device major/minor: 10:256
+Present UBI devices: ubi0
+ubi0
+Volumes count: 2
+Logical eraseblock size: 126976 bytes, 124.0 KiB
+Total amount of logical eraseblocks: 905 (114913280 bytes, 109.5 MiB)
+Amount of available logical eraseblocks: 0 (0 bytes)
+Maximum count of volumes 128
+Count of bad physical eraseblocks: 0
+Count of reserved physical eraseblocks: 20
+Current maximum erase counter value: 3
+Minimum input/output unit size: 2048 bytes
+Character device major/minor: 251:0
+Present volumes: 0, 1
+Volume ID: 0 (on ubi0)
+Type: dynamic
+Alignment: 1
+Size: 78 LEBs (9904128 bytes, 9.4 MiB)
+State: OK
+Name: fit
+Character device major/minor: 251:1
+-----------------------------------
+Volume ID: 1 (on ubi0)
+Type: dynamic
+Alignment: 1
+Size: 801 LEBs (101707776 bytes, 96.9 MiB)
+State: OK
+Name: rootfs_data
+Character device major/minor: 251:2
+&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;拿手机上的 &lt;code&gt;iperf3&lt;/code&gt; 在距离路由器1.5米左右处进行测速。在并发数为 4 的情况下，上传峰值有 1.6 Gbps 左右，平均在 1.2 ~ 1.5 Gbps
+之间，不算稳定；下载最高只能跑到 1 Gbps 出头，平均在 900 Mbps 上下。单流上传能跑满千兆，但手机的单流下载只能跑到 450 Mbps，
+拿笔记本测试单流下载可以跑满千兆。&lt;/p&gt;
+&lt;p&gt;在进行并发上传的时候两个 CPU 几乎都快吃满了，&lt;del&gt;毕竟辣鸡 A53&lt;/del&gt;。&lt;/p&gt;
+&lt;p&gt;尝试过 packet steering 将中断请求进行均衡，结果吞吐量有所下降。猜测是处理 irq 的和进行包转发的不是一个核心导致 cache 频繁失效。&lt;/p&gt;
+&lt;p&gt;总的来说虽然结果不太满意，但至少把基本的带宽、稳定性以及覆盖范围的问题解决了。&lt;/p&gt;
+&lt;h2 id="一点吐槽"&gt;&lt;a href="#%e4%b8%80%e7%82%b9%e5%90%90%e6%a7%bd" class="header-anchor"&gt;&lt;/a&gt;一点吐槽
+&lt;/h2&gt;&lt;p&gt;在费了几天时间折腾这玩意之后只能说 x86 生态依然是不可动摇啊，强制 UEFI + ACPI 真是比这一堆嵌入式的玩意舒服多了，不用自己做脏活，
+但是谁让这些东西这么便宜呢 🤪。还有 SysV init 和 systemd 这个经典问题。尽管 SysV init 确实是简单了，但架不住别人 systemd 是
+真的方便，坐等 usystemd 🤤。&lt;/p&gt;
+&lt;p&gt;说回 OpenWrt 这边，这玩意是我到目前为止用过的唯一一个 &lt;code&gt;/bin&lt;/code&gt;, &lt;code&gt;/sbin&lt;/code&gt;, &lt;code&gt;/usr/bin&lt;/code&gt;, &lt;code&gt;/usr/sbin&lt;/code&gt; 完全分开的发行版，我想不到
+有什么不把这些目录合并的理由，真是要逼死强迫症了 🙄。还有它的文档，怎么说呢 🤔。。。。。。👆🤓 诶，不如 ArchLinux！不过说实话
+我也不太确定 OpenWrt 的文档水平到底如何，反正在链路聚合那里有几个参数在 OpenWrt 的文档里压根找不到 😑。&lt;/p&gt;</description></item><item><title>QEMU/VFIO: Windows Guest 折腾记录</title><link>https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/</link><pubDate>Wed, 31 Dec 2025 18:25:01 +0800</pubDate><guid>https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/</guid><description>&lt;img src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/cover.webp" alt="Featured image of post QEMU/VFIO: Windows Guest 折腾记录" /&gt;&lt;h2 id="前言"&gt;&lt;a href="#%e5%89%8d%e8%a8%80" class="header-anchor"&gt;&lt;/a&gt;前言
 &lt;/h2&gt;&lt;p&gt;由于小时候不懂事在沟槽的Microsoft Store上买了个Horizon 4，以及Linux(Wayland)上一直缺乏一个好用的Office软件，
 一直想搭建一个体验如同真机的Windows虚拟机，即开机接管所有外围设备并直接进入Windows，关机也会将整台电脑一起关闭。&lt;br&gt;
 你说为什么不Dual Boot🧐？&lt;br&gt;
