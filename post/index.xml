@@ -1,4 +1,833 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Posts on Mirika's Blog</title><link>https://mirikaryu.github.io/post/</link><description>Recent content in Posts on Mirika's Blog</description><generator>Hugo -- gohugo.io</generator><language>zh-cn</language><copyright>Mirika</copyright><lastBuildDate>Mon, 06 Apr 2026 17:10:04 +0800</lastBuildDate><atom:link href="https://mirikaryu.github.io/post/index.xml" rel="self" type="application/rss+xml"/><item><title>Xiaomi AX3000T AP 固件精简与配置：自定义 UBoot 与主线 OpenWrt</title><link>https://mirikaryu.github.io/post/openwrt-xiaomi_ax3000t/</link><pubDate>Mon, 06 Apr 2026 17:10:04 +0800</pubDate><guid>https://mirikaryu.github.io/post/openwrt-xiaomi_ax3000t/</guid><description>&lt;img src="https://mirikaryu.github.io/post/openwrt-xiaomi_ax3000t/cover.webp" alt="Featured image of post Xiaomi AX3000T AP 固件精简与配置：自定义 UBoot 与主线 OpenWrt" /&gt;&lt;h2 id="前言"&gt;&lt;a href="#%e5%89%8d%e8%a8%80" class="header-anchor"&gt;&lt;/a&gt;前言
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Posts on Mirika's Blog</title><link>https://mirikaryu.github.io/post/</link><description>Recent content in Posts on Mirika's Blog</description><generator>Hugo -- gohugo.io</generator><language>zh</language><copyright>Mirika</copyright><lastBuildDate>Tue, 26 May 2026 14:47:01 +0800</lastBuildDate><atom:link href="https://mirikaryu.github.io/post/index.xml" rel="self" type="application/rss+xml"/><item><title>浅析 C++ 中的值类别</title><link>https://mirikaryu.github.io/post/cpp-value_catagory/</link><pubDate>Tue, 26 May 2026 14:47:01 +0800</pubDate><guid>https://mirikaryu.github.io/post/cpp-value_catagory/</guid><description>&lt;img src="https://mirikaryu.github.io/post/cpp-value_catagory/cover.avif" alt="Featured image of post 浅析 C++ 中的值类别" /&gt;&lt;h2 id="前言"&gt;&lt;a href="#%e5%89%8d%e8%a8%80" class="header-anchor"&gt;&lt;/a&gt;前言
+&lt;/h2&gt;&lt;p&gt;从接触 C++ 至今都没有比较完整的了解过整个值类别的系统，实际编写代码时基本就是凭感觉使用各种引用，于是就花了点时间简单的
+研究了一下相关内容。最后只能说虽然没有想象中的那么复杂，但真的挺恶心人的，有一种处处都在为屎山规则打补丁的感觉。&lt;/p&gt;
+&lt;p&gt;个人认为 C++ 与值类别相关的混淆完全来源于将值类别和类型这两个毫不相关的概念都通过类型系统（引用）进行表达。&lt;/p&gt;
+&lt;p&gt;比如经常听到的一句话：“右值引用是左值”，其实是专指像 &lt;code&gt;int&amp;amp;&amp;amp; a = 1;&lt;/code&gt; 中 &lt;code&gt;a&lt;/code&gt; 这个标识符在作为表达式的时候是左值。但 &lt;code&gt;std::move(x)&lt;/code&gt;
+返回的也是右值引用类型，难道它还是左值吗？所以在我看来这句话的误导性非常强，因为其实际上暗示了值类别和标识符类型挂钩，
+但这是完全不正确的。&lt;/p&gt;
+&lt;p&gt;因此在下文中我会尽可能的将值类别系统和类型系统分开说明。&lt;/p&gt;
+&lt;h2 id="值类别"&gt;&lt;a href="#%e5%80%bc%e7%b1%bb%e5%88%ab" class="header-anchor"&gt;&lt;/a&gt;值类别
+&lt;/h2&gt;&lt;p&gt;首先有两点必要的认知：&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;只有表达式才有值类别这个属性。&lt;/li&gt;
+&lt;li&gt;表达式的值类别和类型毫无关联。&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;还是以经典的 &lt;code&gt;int&amp;amp;&amp;amp; a = 1;&lt;/code&gt; 进行说明。首先这是一条带初始化器的&lt;strong&gt;声明语句&lt;/strong&gt;，至少在赋值号左边是没有值类别这个概念的，只能说标识符
+&lt;code&gt;a&lt;/code&gt; 的类型就是 &lt;code&gt;int&amp;amp;&amp;amp;&lt;/code&gt;。而 &lt;code&gt;a;&lt;/code&gt; 是一条&lt;strong&gt;表达式语句&lt;/strong&gt;，其表达式的类型是 &lt;code&gt;int&lt;/code&gt;，而值类别为左值，合起来就是 &lt;code&gt;int&amp;amp;&lt;/code&gt;。&lt;/p&gt;
+&lt;p&gt;那么 C++ 中有哪些值类别呢？最初 C++ 中值类别的语义也是从 C 中借鉴的，仅简单的分成了左值和右值。
+然后为了实现资源重用以及 RVO 之类的优化，最终在 C++17 中演变成了下面这样：&lt;/p&gt;
+&lt;pre class="mermaid" style="visibility:hidden"&gt;graph TD
+ Expr["&lt;strong&gt;expression&lt;/strong&gt;&lt;br&gt;表达式"] --&gt; Glvalue["&lt;strong&gt;glvalue&lt;/strong&gt;&lt;br&gt;泛左值"]
+ Expr --&gt; Rvalue["&lt;strong&gt;rvalue&lt;/strong&gt;&lt;br&gt;右值"]
+
+ Glvalue --&gt; Lvalue["&lt;strong&gt;lvalue&lt;/strong&gt;&lt;br&gt;左值"]
+ Glvalue --&gt; Xvalue["&lt;strong&gt;xvalue&lt;/strong&gt;&lt;br&gt;亡值"]
+
+ Rvalue --&gt; Xvalue
+ Rvalue --&gt; Prvalue["&lt;strong&gt;prvalue&lt;/strong&gt;&lt;br&gt;纯右值"]
+
+ class Expr main;
+ class Glvalue,Rvalue sub;
+ class Lvalue,Xvalue,Prvalue leaf;&lt;/pre&gt;&lt;p&gt;从图中可以得知任何一个表达式都属于 lvalue, xvalue, prvalue 这三类中的一类，而其中 xvalue 同时表现出 glvalue 和 rvalue 的性质。&lt;/p&gt;
+&lt;p&gt;我们将值类别进行区分的原因肯定是由于不同的类别有不同的性质，而这些性质直接关系到能否将该表达式的值进行复用，
+以及能否消除掉不必要的复制以提升性能，所以有必要知道不同值类别之间的差别在什么地方。&lt;/p&gt;
+&lt;p&gt;除此之外，由于值类别是表达式自身的性质，因此我们只能通过观察其结构来判断该表达式的值类别。&lt;del&gt;也就是必须得记住不同的 patterns&lt;/del&gt; 🤪&lt;/p&gt;
+&lt;h3 id="glvalue--泛左值"&gt;&lt;a href="#glvalue--%e6%b3%9b%e5%b7%a6%e5%80%bc" class="header-anchor"&gt;&lt;/a&gt;glvalue / 泛左值
+&lt;/h3&gt;&lt;p&gt;泛左值有如下性质：&lt;/p&gt;
+
+ &lt;blockquote&gt;
+ &lt;ul&gt;
+&lt;li&gt;泛左值可以通过左值到右值、数组到指针或函数到指针隐式转换转换成纯右值。&lt;/li&gt;
+&lt;li&gt;泛左值可以是多态的：它标识的对象的动态类型不必是该表达式的静态类型。&lt;/li&gt;
+&lt;li&gt;泛左值可以具有不完整类型，只要表达式中容许。&lt;/li&gt;
+&lt;/ul&gt;
+
+ &lt;/blockquote&gt;
+&lt;p&gt;是什么意思呢？第一条就是在说这些情况：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;{};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="n"&gt;b&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;a&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="n"&gt;arr&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="mi"&gt;8&lt;/span&gt;&lt;span class="p"&gt;]{};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="o"&gt;*&lt;/span&gt; &lt;span class="n"&gt;p&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;arr&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;由于变量的初始化以及内建的 &lt;code&gt;+&lt;/code&gt; 运算符需要一个纯右值，但无论是 &lt;code&gt;a&lt;/code&gt; 还是 &lt;code&gt;arr&lt;/code&gt; 作为表达式都是左值，因此这里会发生从左值到纯右值
+的隐式转换，而数组和函数与普通变量不同的是会 decay 成纯右值指针。&lt;/p&gt;
+&lt;p&gt;但是要注意不是所有情况下都能够转换，不然就会出现下面这种魔幻代码：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;{};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&amp;amp;&lt;/span&gt; &lt;span class="n"&gt;ref&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt; &lt;span class="c1"&gt;// error
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;然后剩下两条基本就是字面意思：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="c1"&gt;// 动态多态，纯右值不可行
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;struct&lt;/span&gt; &lt;span class="nc"&gt;foo&lt;/span&gt; &lt;span class="p"&gt;{};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;struct&lt;/span&gt; &lt;span class="nc"&gt;bar&lt;/span&gt; &lt;span class="o"&gt;:&lt;/span&gt; &lt;span class="n"&gt;foo&lt;/span&gt; &lt;span class="p"&gt;{};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;bar&lt;/span&gt; &lt;span class="n"&gt;obj&lt;/span&gt;&lt;span class="p"&gt;{};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;foo&lt;/span&gt;&lt;span class="o"&gt;*&lt;/span&gt; &lt;span class="n"&gt;p&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="o"&gt;&amp;amp;&lt;/span&gt;&lt;span class="n"&gt;obj&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="c1"&gt;// 不完整类型
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;struct&lt;/span&gt; &lt;span class="nc"&gt;Dummy&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;Dummy&lt;/span&gt; &lt;span class="n"&gt;dummy&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h3 id="rvalue--右值"&gt;&lt;a href="#rvalue--%e5%8f%b3%e5%80%bc" class="header-anchor"&gt;&lt;/a&gt;rvalue / 右值
+&lt;/h3&gt;&lt;p&gt;右值的性质如下：&lt;/p&gt;
+
+ &lt;blockquote&gt;
+ &lt;ul&gt;
+&lt;li&gt;右值不能由内建的取址运算符取地址：&lt;code&gt;&amp;amp;int()&lt;/code&gt;、&lt;code&gt;&amp;amp;i++&lt;/code&gt;、&lt;code&gt;&amp;amp;42&lt;/code&gt; 及 &lt;code&gt;&amp;amp;std::move(x)&lt;/code&gt; 是非法的。&lt;/li&gt;
+&lt;li&gt;右值不能用作内建赋值运算符及内建复合赋值运算符的左操作数。&lt;/li&gt;
+&lt;li&gt;当被用作函数实参且该函数有两种重载可用，其中之一接受右值引用的形参而另一个接受 const 的左值引用的形参时，右值将被绑定到右值引用的重载之上（从而，当复制与移动构造函数均可用时，以右值实参将调用它的移动构造函数，复制和移动赋值运算符与此类似）。&lt;/li&gt;
+&lt;/ul&gt;
+
+ &lt;/blockquote&gt;
+&lt;p&gt;前面两个很好理解，总不能写出 &lt;code&gt;&amp;amp;0&lt;/code&gt; 或者 &lt;code&gt;1 = 2&lt;/code&gt; 这种东西。第三条说的重载决议其实就是说如果有以下重载：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;void&lt;/span&gt; &lt;span class="nf"&gt;func&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="k"&gt;const&lt;/span&gt; &lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;void&lt;/span&gt; &lt;span class="nf"&gt;func&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&amp;amp;&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;则 &lt;code&gt;func(1)&lt;/code&gt; 会绑定到 &lt;code&gt;void func(int&amp;amp;&amp;amp;)&lt;/code&gt;，根据这个机制，在选择构造函数时就可以优先调用一个类型的移动构造函数。&lt;/p&gt;
+&lt;h3 id="lvalue--左值"&gt;&lt;a href="#lvalue--%e5%b7%a6%e5%80%bc" class="header-anchor"&gt;&lt;/a&gt;lvalue / 左值
+&lt;/h3&gt;
+ &lt;blockquote&gt;
+ &lt;ul&gt;
+&lt;li&gt;与泛左值相同。&lt;/li&gt;
+&lt;li&gt;可以通过内建的取址运算符取左值的地址：&lt;code&gt;&amp;amp;++i&lt;/code&gt; 及 &lt;code&gt;&amp;amp;std::endl&lt;/code&gt; 是合法表达式。&lt;/li&gt;
+&lt;li&gt;可修改的左值可用作内建赋值和内建复合赋值运算符的左操作数。&lt;/li&gt;
+&lt;/ul&gt;
+
+ &lt;/blockquote&gt;
+&lt;p&gt;将泛左值加上一个名字之后就变成了左值，所以左值除了泛左值的性质外，还可以获取到某个对象具体的地址。这里「可修改的左值」是
+来自 C 的措辞，将数组、函数以及被 &lt;code&gt;const&lt;/code&gt; 修饰的类型等给排除在外。&lt;/p&gt;
+&lt;p&gt;那么哪些表达式会被归类为左值呢？大致有以下几类：&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;具名的变量、函数、数据成员的名字。这个比较好解释，既然你都具名了，那必然会指代一个具体的内存对象，完全符合左值的定义，当然是
+左值，举例说明一下就是：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&amp;amp;&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="n"&gt;b&lt;/span&gt;&lt;span class="p"&gt;{};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;void&lt;/span&gt; &lt;span class="nf"&gt;func&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;void&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;const&lt;/span&gt; &lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&lt;/span&gt; &lt;span class="n"&gt;ref&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;b&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;以上这些标识符作为表达式的时候全部都是左值。&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;感觉上可以被赋值的表达式。这边就包含例如内建赋值运算、内建前缀自增/自减等等一大堆东西，详细的可以去查看
+&lt;a class="link" href="https://zh.cppreference.com/cpp/language/value_category#%E5%B7%A6%E5%80%BC" target="_blank" rel="noopener"
+ &gt;cppreference&lt;/a&gt;，比如：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;a&lt;/span&gt; &lt;span class="o"&gt;+=&lt;/span&gt; &lt;span class="n"&gt;b&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="o"&gt;++&lt;/span&gt;&lt;span class="n"&gt;a&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="o"&gt;*&lt;/span&gt;&lt;span class="n"&gt;p&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;n&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="n"&gt;m&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;p&lt;/span&gt;&lt;span class="o"&gt;-&amp;gt;&lt;/span&gt;&lt;span class="n"&gt;m&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;转换到左值引用类型的转型表达式，以及返回左值引用类型的函数调用表达式：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;getline&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;cin&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;str&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;cout&lt;/span&gt; &lt;span class="o"&gt;&amp;lt;&amp;lt;&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;static_cast&lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&amp;gt;&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;x&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;这里面还有一个特例是函数类型，无论怎么操作都是左值。就算函数调用返回的是其右值引用，或者手动转换到右值引用，其依然是左值。&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;典中典字符串字面量。C 语言遗留机制，比如 &lt;code&gt;&amp;quot;Hello world&amp;quot;&lt;/code&gt;。&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;使用左值引用或者类类型的常量模板形参（NTTP）：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;struct&lt;/span&gt; &lt;span class="nc"&gt;dummy&lt;/span&gt; &lt;span class="p"&gt;{};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;template&lt;/span&gt; &lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="n"&gt;dummy&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&lt;/span&gt; &lt;span class="n"&gt;b&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;void&lt;/span&gt; &lt;span class="n"&gt;foo&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;void&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="o"&gt;&amp;amp;&lt;/span&gt;&lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt; &lt;span class="c1"&gt;// 左值，可以取地址
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="o"&gt;&amp;amp;&lt;/span&gt;&lt;span class="n"&gt;b&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt; &lt;span class="c1"&gt;// 左值，可以取地址
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;需要注意的是，使用标量类型的常量模板形参是纯右值。&lt;/p&gt;
+&lt;/li&gt;
+&lt;/ol&gt;
+&lt;blockquote class="alert alert-tip"&gt;
+ &lt;div class="alert-header"&gt;
+ &lt;span class="alert-icon"&gt;💡&lt;/span&gt;
+ &lt;span class="alert-title"&gt;提示&lt;/span&gt;
+ &lt;/div&gt;
+ &lt;div class="alert-body"&gt;
+ &lt;p&gt;位域可以被赋值号赋值，但不能取地址，只能复制并绑定到 const 左值引用或者右值引用，被归类为泛左值。&lt;/p&gt;
+ &lt;/div&gt;
+ &lt;/blockquote&gt;
+&lt;h3 id="prvalue--纯右值"&gt;&lt;a href="#prvalue--%e7%ba%af%e5%8f%b3%e5%80%bc" class="header-anchor"&gt;&lt;/a&gt;prvalue / 纯右值
+&lt;/h3&gt;
+ &lt;blockquote&gt;
+ &lt;ul&gt;
+&lt;li&gt;与右值相同。&lt;/li&gt;
+&lt;li&gt;纯右值不具有多态：它所标识的对象的动态类型始终是该表达式的类型。&lt;/li&gt;
+&lt;li&gt;非类非数组的纯右值不能有 cv 限定，除非它被实质化以绑定到 cv 限定类型的引用。（注意：函数调用或转型表达式可能生成非类的 cv 限定类型的纯右值，但它的 cv 限定符通常被立即剥除。）&lt;/li&gt;
+&lt;li&gt;纯右值不能具有不完整类型（除了类型 void，或在 decltype 说明符中使用之外）。&lt;/li&gt;
+&lt;li&gt;纯右值不能具有抽象类类型或它的数组类型。&lt;/li&gt;
+&lt;/ul&gt;
+
+ &lt;/blockquote&gt;
+&lt;p&gt;相比右值多出来的这几条规则基本就是和泛左值对着干的。先说说多态的问题，动态多态依赖的是查找内存中的虚表，但如果是一个 prvalue，其
+压根就不是内存中的对象，没有实体，动态多态自然就无从谈起。&lt;/p&gt;
+&lt;p&gt;接着来看看第三条规则在说什么，其实挺无聊的：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;const&lt;/span&gt; &lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="nf"&gt;foo&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;void&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt; &lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;foo&lt;/span&gt;&lt;span class="p"&gt;();&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;就是在这个场景下返回值的 &lt;code&gt;const&lt;/code&gt; 会被剥离，但为何类类型又是例外？是因为其成员函数可以有 cv 限定：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;struct&lt;/span&gt; &lt;span class="nc"&gt;foo&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="kt"&gt;void&lt;/span&gt; &lt;span class="nf"&gt;bar&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;void&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="kt"&gt;void&lt;/span&gt; &lt;span class="nf"&gt;bar&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;void&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="k"&gt;const&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;const&lt;/span&gt; &lt;span class="n"&gt;foo&lt;/span&gt; &lt;span class="nf"&gt;make_foo&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;void&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;make_foo&lt;/span&gt;&lt;span class="p"&gt;().&lt;/span&gt;&lt;span class="n"&gt;bar&lt;/span&gt;&lt;span class="p"&gt;();&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;在这个场景下 prvalue 的 cv 限定就是有意义的。&lt;/p&gt;
+&lt;p&gt;然后来看看哪些结构是纯右值：&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;字面量（字符串除外）和枚举值（包含成员枚举值）。不用多说了，例如 &lt;code&gt;42&lt;/code&gt;, &lt;code&gt;nullptr&lt;/code&gt; 等。&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;各种看起来像纯右值的东西，包含了各种算术运算和概念相关的表达式：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="o"&gt;++&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;a&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="n"&gt;b&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="o"&gt;&amp;amp;&lt;/span&gt;&lt;span class="n"&gt;a&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;this&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;requires&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;T&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;T&lt;/span&gt; &lt;span class="n"&gt;b&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="n"&gt;b&lt;/span&gt;&lt;span class="p"&gt;};&lt;/span&gt; &lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;same_as&lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="n"&gt;T&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;这里可以说明的地方是未决成员函数调用这个例外：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;struct&lt;/span&gt; &lt;span class="nc"&gt;foo&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="kt"&gt;void&lt;/span&gt; &lt;span class="nf"&gt;func&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;void&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="kt"&gt;void&lt;/span&gt; &lt;span class="nf"&gt;func&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;foo&lt;/span&gt; &lt;span class="n"&gt;obj&lt;/span&gt;&lt;span class="p"&gt;{};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;void&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;foo&lt;/span&gt;&lt;span class="o"&gt;::*&lt;/span&gt;&lt;span class="n"&gt;pmf&lt;/span&gt;&lt;span class="p"&gt;)(&lt;/span&gt;&lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="o"&gt;&amp;amp;&lt;/span&gt;&lt;span class="n"&gt;foo&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;func&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="c1"&gt;// 这些表达式是未决成员函数调用
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;obj&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="n"&gt;func&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;obj&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="o"&gt;*&lt;/span&gt;&lt;span class="n"&gt;pmf&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;未决成员函数调用虽然也是纯右值，但只能拿来填入实参后调用函数，像 &lt;code&gt;(obj.*pmf)(1);&lt;/code&gt;，甚至不能拿来绑定引用。&lt;/p&gt;
+&lt;p&gt;void 和 throw 表达式跟这个类似，会有一些限制，不过不太重要就不再展开了。
+更详细的说明同样参考 &lt;a class="link" href="https://zh.cppreference.com/cpp/language/value_category#%E7%BA%AF%E5%8F%B3%E5%80%BC" target="_blank" rel="noopener"
+ &gt;cppreference&lt;/a&gt;。&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;转换到非引用类型的转型表达式，以及返回非引用类型的函数调用表达式：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;str&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="n"&gt;substr&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="mi"&gt;2&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;str1&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="n"&gt;str2&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;static_cast&lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="kt"&gt;double&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;x&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;string&lt;/span&gt;&lt;span class="p"&gt;{&lt;/span&gt;&lt;span class="s"&gt;&amp;#34;Hello world&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;使用标量类型的常量模板形参（NTTP）：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;template&lt;/span&gt; &lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;void&lt;/span&gt; &lt;span class="n"&gt;foo&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;void&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="c1"&gt;// &amp;amp;a;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="c1"&gt;// prvalue，无法取地址
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;lambda 表达式，例如 &lt;code&gt;[] { return 1; }&lt;/code&gt;。&lt;br&gt;
+关于这个有一段之前看到的有趣代码：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="nf"&gt;main&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;void&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="p"&gt;[](&lt;/span&gt;&lt;span class="k"&gt;this&lt;/span&gt; &lt;span class="k"&gt;auto&lt;/span&gt; &lt;span class="o"&gt;&amp;amp;&amp;amp;&lt;/span&gt;&lt;span class="n"&gt;self&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="o"&gt;-&amp;gt;&lt;/span&gt; &lt;span class="kt"&gt;void&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="p"&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="k"&gt;static&lt;/span&gt; &lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="n"&gt;count&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="mi"&gt;3&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;count&lt;/span&gt; &lt;span class="o"&gt;&amp;gt;&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="p"&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;print&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s"&gt;&amp;#34;{}&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;count&lt;/span&gt;&lt;span class="o"&gt;--&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="n"&gt;self&lt;/span&gt;&lt;span class="p"&gt;();&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="p"&gt;}();&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;可以想想为何上面这个程序的输出为 &lt;code&gt;3321&lt;/code&gt; 而不是 &lt;code&gt;321&lt;/code&gt;？&lt;/p&gt;
+&lt;/li&gt;
+&lt;/ol&gt;
+&lt;h3 id="xvalue--亡值"&gt;&lt;a href="#xvalue--%e4%ba%a1%e5%80%bc" class="header-anchor"&gt;&lt;/a&gt;xvalue / 亡值
+&lt;/h3&gt;
+ &lt;blockquote&gt;
+ &lt;ul&gt;
+&lt;li&gt;与右值相同。&lt;/li&gt;
+&lt;li&gt;与泛左值相同。&lt;/li&gt;
+&lt;/ul&gt;
+
+ &lt;/blockquote&gt;
+&lt;p&gt;亡值的性质其实就是右值和泛左值性质的并集，但单拿出来看是没什么作用的，其真正的价值是作为左值和右值之间的桥梁，
+这要在后面绑定引用以及选择重载函数的时候才能够体现出来。&lt;/p&gt;
+&lt;p&gt;亡值主要有以下这几类：&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;转换到右值引用类型的转型表达式，以及返回右值引用类型的函数调用表达式：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;move&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;vec&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;static_cast&lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&amp;amp;&amp;gt;&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;这应该是我们最熟悉也是最典型的用法了，用于将一个左值转换为亡值。&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;对已有的&lt;strong&gt;右值&lt;/strong&gt;进行的操作，比如成员访问和下标访问：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="n"&gt;m&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="o"&gt;*&lt;/span&gt;&lt;span class="n"&gt;mp&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;n&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;至于为什么可以包含纯右值请继续往下看。&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;具有「移动资格」的表达式。&lt;br&gt;
+这是个什么东西呢？简单来说就是有一个左值表达式，指代了非 volatile 限定的自动存储期局部变量，
+然后跟在 &lt;code&gt;return&lt;/code&gt;, &lt;code&gt;co_return&lt;/code&gt; 以及 &lt;code&gt;throw&lt;/code&gt; 后面，比如：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;auto&lt;/span&gt; &lt;span class="nf"&gt;func&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;void&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;vector&lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt; &lt;span class="n"&gt;x&lt;/span&gt;&lt;span class="p"&gt;{};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="n"&gt;x&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;显然这个规则是为了返回值优化准备的，这样可以尽可能的进行移动而不是拷贝，详情可以查看 &lt;a class="link" href="#rvo" &gt;RVO&lt;/a&gt; 这个小节。&lt;/p&gt;
+&lt;/li&gt;
+&lt;/ol&gt;
+&lt;hr&gt;
+&lt;p&gt;上面所有的这些简化规则其实已经基本涵盖了「值类别」本身的内容，虽然已经有点复杂了，但还算清晰，不至于引发混淆或混乱。
+只有当这些规则和类型系统、模板等其它功能交互时才是邪恶的开端 😈。&lt;/p&gt;
+&lt;h2 id="引用临时量与模板"&gt;&lt;a href="#%e5%bc%95%e7%94%a8%e4%b8%b4%e6%97%b6%e9%87%8f%e4%b8%8e%e6%a8%a1%e6%9d%bf" class="header-anchor"&gt;&lt;/a&gt;引用、临时量与模板
+&lt;/h2&gt;&lt;p&gt;先说引用绑定的规则，这里是个人感觉有点容易混淆的地方，但有了前面的分类后其实也比较清晰：&lt;/p&gt;
+&lt;table&gt;
+	&lt;thead&gt;
+			&lt;tr&gt;
+					&lt;th&gt;引用类型&lt;/th&gt;
+					&lt;th&gt;能够绑定的值类别&lt;/th&gt;
+			&lt;/tr&gt;
+	&lt;/thead&gt;
+	&lt;tbody&gt;
+			&lt;tr&gt;
+					&lt;td&gt;左值引用 &lt;code&gt;int&amp;amp;&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;左值&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;右值引用 &lt;code&gt;int&amp;amp;&amp;amp;&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;右值（亡值、纯右值）&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;只读左值引用 &lt;code&gt;const int&amp;amp;&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;所有值类别（左值、亡值、纯右值）&lt;/td&gt;
+			&lt;/tr&gt;
+	&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;p&gt;当函数返回引用以及将引用作为函数参数的时候也适用同样的规则。作为返回类型时，引用绑定的是 &lt;code&gt;return&lt;/code&gt; 后的表达式；作为函数形参时，
+绑定的是调用方传入的实参，不同的引用类型可以参与重载决议，比如当匹配右值的时候右值引用 &lt;code&gt;int&amp;amp;&amp;amp;&lt;/code&gt; 的优先级
+高于只读左值引用 &lt;code&gt;const int&amp;amp;&lt;/code&gt;。&lt;/p&gt;
+&lt;hr&gt;
+&lt;p&gt;但这样又会引出一个新问题，在以下代码中：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&amp;amp;&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;const&lt;/span&gt; &lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&lt;/span&gt; &lt;span class="n"&gt;b&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;const&lt;/span&gt; &lt;span class="k"&gt;auto&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&lt;/span&gt; &lt;span class="n"&gt;c&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="p"&gt;[]{&lt;/span&gt; &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;string&lt;/span&gt;&lt;span class="p"&gt;{&lt;/span&gt;&lt;span class="s"&gt;&amp;#34;Hello&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;};&lt;/span&gt; &lt;span class="p"&gt;}();&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;当这三个引用绑定 prvalue 的时候，其绑定的究竟是什么？我们知道从 C++17 开始，prvalue 就是一个没有实体的幽灵，
+但显然以上的 &lt;code&gt;a&lt;/code&gt;, &lt;code&gt;b&lt;/code&gt;, &lt;code&gt;c&lt;/code&gt; 均为左值表达式，说明其指代的一定是一个在内存中的对象。&lt;strong&gt;临时量实质化&lt;/strong&gt;就是用来解决这个矛盾的。
+&lt;del&gt;补丁+1&lt;/del&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;临时量实质化&lt;/strong&gt;的作用是将任何完整类型 T 的 prvalue 转换为同类型的 xvalue，
+这个过程中会&lt;strong&gt;产生一个以该 prvalue 初始化的临时对象&lt;/strong&gt;。简单来说就是将 prvalue 这个字面量找了块实际的内存存放并开始其生命周期。&lt;/p&gt;
+&lt;p&gt;这个过程会在以下常见场景发生：&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;绑定引用到纯右值的时候，如上所示。&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;访问纯右值类的数据成员（包含调用 callable 对象），例如：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;struct&lt;/span&gt; &lt;span class="nc"&gt;foo&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="n"&gt;m&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt; &lt;span class="p"&gt;};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;foo&lt;/span&gt;&lt;span class="p"&gt;{}.&lt;/span&gt;&lt;span class="n"&gt;m&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;纯右值数组取下标或转换为指针时。&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="o"&gt;*&lt;/span&gt; &lt;span class="n"&gt;p&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;type_identity_t&lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="p"&gt;[]&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;&lt;span class="p"&gt;{&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="mi"&gt;2&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="mi"&gt;3&lt;/span&gt;&lt;span class="p"&gt;};&lt;/span&gt; &lt;span class="c1"&gt;// Bad, p is dangling
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="n"&gt;n&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;type_identity_t&lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="p"&gt;[]&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;&lt;span class="p"&gt;{&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="mi"&gt;2&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="mi"&gt;3&lt;/span&gt;&lt;span class="p"&gt;}[&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;];&lt;/span&gt; &lt;span class="c1"&gt;// OK
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;完整的场景请查看 &lt;a class="link" href="https://zh.cppreference.com/cpp/language/implicit_conversion#%E4%B8%B4%E6%97%B6%E9%87%8F%E5%AE%9E%E8%B4%A8%E5%8C%96" target="_blank" rel="noopener"
+ &gt;cppreference&lt;/a&gt;。&lt;/p&gt;
+&lt;blockquote class="alert alert-tip"&gt;
+ &lt;div class="alert-header"&gt;
+ &lt;span class="alert-icon"&gt;💡&lt;/span&gt;
+ &lt;span class="alert-title"&gt;提示&lt;/span&gt;
+ &lt;/div&gt;
+ &lt;div class="alert-body"&gt;
+ &lt;p&gt;这种情况&lt;strong&gt;没有发生&lt;/strong&gt;临时量实质化：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;auto&lt;/span&gt; &lt;span class="n"&gt;str&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;string&lt;/span&gt;&lt;span class="p"&gt;{&lt;/span&gt;&lt;span class="s"&gt;&amp;#34;Hello&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;这里 prvalue 会直接在结果对象中构造，这是由 C++17 的语言规则强制保证的。&lt;/p&gt;
+ &lt;/div&gt;
+ &lt;/blockquote&gt;
+&lt;p&gt;然后让我们继续仔细观察上面几个例子，又会发现一个新问题：生成的临时对象的生命周期是怎样的？比如对于 &lt;code&gt;const int&amp;amp; a = 1;&lt;/code&gt;，
+如果 &lt;code&gt;a&lt;/code&gt; 绑定到临时对象但该对象在这行语句结束后就失效了，那不直接炸了。所以单独有临时量实质化是不够的，
+还需要另外的规则来扩展其生存期。&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;一旦引用被绑定到临时对象或它的子对象，临时对象的生存期就被延续以匹配引用的生存期&lt;/strong&gt;，除了以下特例，&lt;del&gt;到底有多少特例啊喂&lt;/del&gt; 😡：&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;临时对象绑定到函数形参或 &lt;code&gt;new&lt;/code&gt; 出来的对象中的引用成员时，其生命周期仅限当前表达式。也就是像这样：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&amp;amp;&lt;/span&gt; &lt;span class="n"&gt;ref&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;move&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;struct&lt;/span&gt; &lt;span class="nc"&gt;foo&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="k"&gt;const&lt;/span&gt; &lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&lt;/span&gt; &lt;span class="n"&gt;r&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt; &lt;span class="p"&gt;};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;foo&lt;/span&gt;&lt;span class="o"&gt;*&lt;/span&gt; &lt;span class="n"&gt;p&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="k"&gt;new&lt;/span&gt; &lt;span class="n"&gt;foo&lt;/span&gt;&lt;span class="p"&gt;{&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;&lt;code&gt;ref&lt;/code&gt;, &lt;code&gt;p-&amp;gt;r&lt;/code&gt; 都是悬垂引用。&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;在 &lt;code&gt;return&lt;/code&gt; 中绑定到引用返回值的临时量在表达式末尾被销毁，这时会返回悬垂引用。好消息是从 C++26 开始会直接变成编译错误：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;const&lt;/span&gt; &lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&lt;/span&gt; &lt;span class="n"&gt;func&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;void&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt; &lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;还有 C++20 新增的一条匪夷所思左右脑互搏的规则：绑定到用圆括号初始化器 &lt;code&gt;()&lt;/code&gt; 初始化的聚合体引用成员的临时量存在到该表达式末尾：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;struct&lt;/span&gt; &lt;span class="nc"&gt;foo&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&amp;amp;&lt;/span&gt; &lt;span class="n"&gt;r&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt; &lt;span class="p"&gt;};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;foo&lt;/span&gt; &lt;span class="n"&gt;bar&lt;/span&gt;&lt;span class="p"&gt;{&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;};&lt;/span&gt; &lt;span class="c1"&gt;// OK
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;foo&lt;/span&gt; &lt;span class="nf"&gt;bar&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt; &lt;span class="c1"&gt;// bar.r is dangling reference
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;何意味 😅？生怕 UB 不够多是吧。&lt;/p&gt;
+&lt;/li&gt;
+&lt;/ol&gt;
+&lt;blockquote class="alert alert-important"&gt;
+ &lt;div class="alert-header"&gt;
+ &lt;span class="alert-icon"&gt;📌&lt;/span&gt;
+ &lt;span class="alert-title"&gt;重要&lt;/span&gt;
+ &lt;/div&gt;
+ &lt;div class="alert-body"&gt;
+ &lt;p&gt;只有引用绑定才有这样延长生存期的功能，如果只是一般的临时量实质化是不会延长生命周期的，
+上面数组右值的那个例子中的指针 &lt;code&gt;p&lt;/code&gt; 是悬垂指针。&lt;/p&gt;
+ &lt;/div&gt;
+ &lt;/blockquote&gt;
+&lt;hr&gt;
+&lt;p&gt;你以为这就结束了？Nonono，和我们&lt;del&gt;伟大的&lt;/del&gt;模板结合之后又双叒叕有新的规则了。考虑下面这段代码：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;void&lt;/span&gt; &lt;span class="nf"&gt;func&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="k"&gt;const&lt;/span&gt; &lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;string&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;void&lt;/span&gt; &lt;span class="nf"&gt;func&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;string&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&amp;amp;&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;如果我们要让一个函数参数能够同时接收不同值类别，最直接的方法就是像上面这样做。但这样的问题也非常明显：如果我有 $N$ 个函数参数，
+那显然我需要 $2^N$ 个函数才能覆盖所有参数组合，这是不可接受的。&lt;/p&gt;
+&lt;p&gt;所以就整了个万能引用出来，可以与模板推导结合实现同一个参数可同时接收左值和右值：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;template&lt;/span&gt; &lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="k"&gt;typename&lt;/span&gt; &lt;span class="n"&gt;T&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;void&lt;/span&gt; &lt;span class="n"&gt;func&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;T&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&amp;amp;&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="k"&gt;auto&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&amp;amp;&lt;/span&gt; &lt;span class="nl"&gt;v&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="n"&gt;rg&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="p"&gt;{}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;想要理解上面这坨东西是怎么工作的，需要先知道&lt;strong&gt;引用折叠&lt;/strong&gt;规则：&lt;/p&gt;
+
+ &lt;blockquote&gt;
+ &lt;p&gt;通过模板，typedef 或 using 中的类型操作可以构成引用的引用，此时适用引用折叠规则：右值引用的右值引用折叠成右值引用，
+所有其他组合均折叠成左值引用。&lt;/p&gt;
+
+ &lt;/blockquote&gt;
+&lt;p&gt;非常好记忆，只需要记住 &lt;code&gt;T + &amp;amp;&amp;amp;&lt;/code&gt; 和 &lt;code&gt;T&amp;amp;&amp;amp; + &amp;amp;&amp;amp;&lt;/code&gt; 这两种情况能够形成右值引用类型，其余的全部会变成左值引用类型即可。
+而且需要注意只有上面这三种情况才能进行引用的拼接，不能手动写像 &lt;code&gt;int&amp;amp;&amp;amp; &amp;amp;&amp;amp; a = 1;&lt;/code&gt; 这样的东西出来。&lt;/p&gt;
+&lt;p&gt;有了这个规则之后万能引用的实现就会变得十分自然，以上面的 &lt;code&gt;func&lt;/code&gt; 为例看看是如何实现接收任意值类别的：&lt;/p&gt;
+&lt;table&gt;
+	&lt;thead&gt;
+			&lt;tr&gt;
+					&lt;th&gt;实参&lt;/th&gt;
+					&lt;th&gt;推导出的 T&lt;/th&gt;
+					&lt;th&gt;形参类型&lt;/th&gt;
+			&lt;/tr&gt;
+	&lt;/thead&gt;
+	&lt;tbody&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;code&gt;1&lt;/code&gt; (prvalue)&lt;/td&gt;
+					&lt;td&gt;int&lt;/td&gt;
+					&lt;td&gt;int&amp;amp;&amp;amp;&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;code&gt;std::move(1)&lt;/code&gt; (xvalue)&lt;/td&gt;
+					&lt;td&gt;int&lt;/td&gt;
+					&lt;td&gt;int&amp;amp;&amp;amp;&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;code&gt;a&lt;/code&gt; (lvalue)&lt;/td&gt;
+					&lt;td&gt;int&amp;amp;&lt;/td&gt;
+					&lt;td&gt;int&amp;amp;&lt;/td&gt;
+			&lt;/tr&gt;
+	&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;p&gt;如果实参带有 cv 限定也是同理的，会在基础类型 T 中自动添加。这也是为什么 &lt;code&gt;void func(auto&amp;amp;);&lt;/code&gt; 不行的原因，声明中的 &lt;code&gt;&amp;amp;&lt;/code&gt; 就导致
+根据引用折叠规则永远无法构成右值引用类型，同时也不会自动添加 &lt;code&gt;const&lt;/code&gt; 变成只读左值引用，所以只能接收左值。&lt;/p&gt;
+&lt;p&gt;至于这个万能引用还有什么妙用就留到&lt;a class="link" href="#%e5%ae%8c%e7%be%8e%e8%bd%ac%e5%8f%91" &gt;下面&lt;/a&gt;再讲了。&lt;/p&gt;
+&lt;blockquote class="alert alert-note"&gt;
+ &lt;div class="alert-header"&gt;
+ &lt;span class="alert-icon"&gt;📝&lt;/span&gt;
+ &lt;span class="alert-title"&gt;备注&lt;/span&gt;
+ &lt;/div&gt;
+ &lt;div class="alert-body"&gt;
+ &lt;p&gt;万能引用依赖于模板推导，因此下面的都&lt;strong&gt;不是&lt;/strong&gt;万能引用：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;void&lt;/span&gt; &lt;span class="nf"&gt;func&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;string&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&amp;amp;&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;template&lt;/span&gt; &lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="k"&gt;typename&lt;/span&gt; &lt;span class="n"&gt;T&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;struct&lt;/span&gt; &lt;span class="nc"&gt;foo&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="kt"&gt;void&lt;/span&gt; &lt;span class="nf"&gt;bar&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;T&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&amp;amp;&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt; &lt;span class="p"&gt;};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+ &lt;/div&gt;
+ &lt;/blockquote&gt;
+&lt;h2 id="万恶的-decltype"&gt;&lt;a href="#%e4%b8%87%e6%81%b6%e7%9a%84-decltype" class="header-anchor"&gt;&lt;/a&gt;万恶的 decltype
+&lt;/h2&gt;&lt;p&gt;值类别和引用的混沌世界中怎么能够少了亲爱的 decltype 呢？我们的 C++ 还是太喜欢重载了，除了函数和运算符，
+连关键字都是可以重载的 😁。&lt;del&gt;说你呢 virtual&lt;/del&gt;&lt;/p&gt;
+&lt;p&gt;decltype 最大的问题在于语义上的混淆，其有两种完全不同的功能和语义，但它们无论是从形式上还是输出结果都几乎一模一样，
+完全让人摸不着头脑 😵‍💫。&lt;/p&gt;
+&lt;hr&gt;
+&lt;p&gt;&lt;code&gt;decltype&lt;/code&gt; 功能一：&lt;strong&gt;根据标识符得到其声明时的类型。&lt;/strong&gt;&lt;/p&gt;
+
+ &lt;blockquote&gt;
+ &lt;p&gt;如果实参是&lt;strong&gt;没有括号&lt;/strong&gt;的标识表达式或&lt;strong&gt;没有括号&lt;/strong&gt;的类成员访问表达式，那么 decltype 产生该表达式指名的实体的类型。
+如果没有这种实体或该实参指名了一组重载函数，那么程序非良构。&lt;/p&gt;
+
+ &lt;/blockquote&gt;
+&lt;p&gt;这是在说什么呢？就是说如果传给 &lt;code&gt;decltype&lt;/code&gt; 的实参符合这几个要求，得到的类型就是该标识符声明时候的类型，声明的时候怎么写的在这里
+就会得到完全一样的结果。比如：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;{};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&lt;/span&gt; &lt;span class="n"&gt;ra&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&amp;amp;&lt;/span&gt; &lt;span class="n"&gt;rra&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;move&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;decltype&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt; &lt;span class="c1"&gt;// 得到 int
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;decltype&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;ra&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt; &lt;span class="c1"&gt;// 得到 int&amp;amp;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;decltype&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;rra&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt; &lt;span class="c1"&gt;// 得到 int&amp;amp;&amp;amp;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;struct&lt;/span&gt; &lt;span class="nc"&gt;foo&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&amp;amp;&lt;/span&gt; &lt;span class="n"&gt;m&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt; &lt;span class="p"&gt;};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;const&lt;/span&gt; &lt;span class="n"&gt;foo&lt;/span&gt;&lt;span class="o"&gt;*&lt;/span&gt; &lt;span class="n"&gt;bar&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;decltype&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;bar&lt;/span&gt;&lt;span class="o"&gt;-&amp;gt;&lt;/span&gt;&lt;span class="n"&gt;m&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt; &lt;span class="c1"&gt;// 得到 int&amp;amp;&amp;amp;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;template&lt;/span&gt; &lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="n"&gt;N&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;void&lt;/span&gt; &lt;span class="n"&gt;func&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;void&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="k"&gt;decltype&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;N&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt; &lt;span class="c1"&gt;// 得到 int
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;上面为什么要强调不带括号呢？decltype 有两个语义，总得有个方法来进行区分。但如果现在希望获取的不是 &lt;code&gt;a&lt;/code&gt; 这个标识符的类型，
+而是其作为表达式时的类型和值类别呢？这个时候就直接加上括号将其作为表达式处理即可。&lt;/p&gt;
+&lt;hr&gt;
+&lt;p&gt;&lt;code&gt;decltype&lt;/code&gt; 功能二：&lt;strong&gt;得到表达式的类型和值类别。&lt;/strong&gt;&lt;/p&gt;
+
+ &lt;blockquote&gt;
+ &lt;p&gt;如果实参是类型为 T 的任何其他表达式，且&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;如果表达式的值类别是亡值，则 &lt;code&gt;decltype&lt;/code&gt; 产生 T&amp;amp;&amp;amp;；&lt;/li&gt;
+&lt;li&gt;如果表达式的值类别是左值，则 &lt;code&gt;decltype&lt;/code&gt; 产生 T&amp;amp;；&lt;/li&gt;
+&lt;li&gt;如果表达式的值类别是纯右值，则 &lt;code&gt;decltype&lt;/code&gt; 产生 T。&lt;/li&gt;
+&lt;/ul&gt;
+
+ &lt;/blockquote&gt;
+&lt;p&gt;逆天设计又来了，由于值类别没有专门的标识方式，所以只能使用类型系统进行表达，虽然好像也没有什么更好的方法就是了。上面的规则已经
+比较简明易懂了，过程无非就是先推导出基本类型后再根据值类别添加不同的引用。唯一可以说的一点是 decltype 的操作数是不求值表达式，
+放在里面的表达式不会产生副作用。&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&amp;amp;&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;decltype&lt;/span&gt;&lt;span class="p"&gt;((&lt;/span&gt;&lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;));&lt;/span&gt; &lt;span class="c1"&gt;// 得到 int&amp;amp;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;decltype&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt; &lt;span class="c1"&gt;// 得到 int
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;decltype&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;move&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;));&lt;/span&gt; &lt;span class="c1"&gt;// 得到 int&amp;amp;&amp;amp;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;decltype&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;terminate&lt;/span&gt;&lt;span class="p"&gt;());&lt;/span&gt; &lt;span class="c1"&gt;// 得到 void
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;hr&gt;
+&lt;p&gt;当然，decltype 的使用场景远远不止上面这些，考虑以下代码，能否发现其中的问题：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="c1"&gt;// decltype(auto)
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;decltype&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="k"&gt;auto&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="n"&gt;func1&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="n"&gt;x&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;x&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt; &lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;decltype&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="k"&gt;auto&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="n"&gt;func2&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="n"&gt;x&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="o"&gt;++&lt;/span&gt;&lt;span class="n"&gt;x&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt; &lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;decltype&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="k"&gt;auto&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="n"&gt;func3&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="n"&gt;b&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt; &lt;span class="o"&gt;&amp;gt;=&lt;/span&gt; &lt;span class="n"&gt;b&lt;/span&gt; &lt;span class="o"&gt;?&lt;/span&gt; &lt;span class="nl"&gt;a&lt;/span&gt; &lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="n"&gt;b&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt; &lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;struct&lt;/span&gt; &lt;span class="nc"&gt;S&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="n"&gt;m&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt; &lt;span class="p"&gt;};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;decltype&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="k"&gt;auto&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="n"&gt;func4&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;void&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;S&lt;/span&gt;&lt;span class="p"&gt;{}.&lt;/span&gt;&lt;span class="n"&gt;m&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt; &lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="c1"&gt;// Requires clause
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;template&lt;/span&gt; &lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="k"&gt;typename&lt;/span&gt; &lt;span class="n"&gt;T&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="k"&gt;typename&lt;/span&gt; &lt;span class="n"&gt;U&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;auto&lt;/span&gt; &lt;span class="n"&gt;add&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;T&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;U&lt;/span&gt; &lt;span class="n"&gt;b&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;requires&lt;/span&gt; &lt;span class="k"&gt;requires&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="n"&gt;b&lt;/span&gt; &lt;span class="p"&gt;}&lt;/span&gt; &lt;span class="o"&gt;-&amp;gt;&lt;/span&gt; &lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;same_as&lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="n"&gt;T&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="n"&gt;b&lt;/span&gt; &lt;span class="p"&gt;}&lt;/span&gt; &lt;span class="o"&gt;-&amp;gt;&lt;/span&gt; &lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;same_as&lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="n"&gt;b&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;其中 func1 ~ func3 均返回悬垂引用，func4 编译期报错，而使用 &lt;code&gt;add(1, 2)&lt;/code&gt; 会不满足约束。
+而究其原因就在于 &lt;code&gt;decltype(auto)&lt;/code&gt; 及 &lt;code&gt;requires&lt;/code&gt; 表达式中的「符合要求」都是自动对操作数应用 decltype。
+什么意思呢？让我们逐个分析一下：&lt;/p&gt;
+&lt;p&gt;对于 func1 ~ func4 来说，实际上等价于以下代码：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;decltype&lt;/span&gt;&lt;span class="p"&gt;((&lt;/span&gt;&lt;span class="n"&gt;x&lt;/span&gt;&lt;span class="p"&gt;))&lt;/span&gt; &lt;span class="n"&gt;func1&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="n"&gt;x&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;x&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt; &lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;decltype&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="o"&gt;++&lt;/span&gt;&lt;span class="n"&gt;x&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="n"&gt;func2&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="n"&gt;x&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="o"&gt;++&lt;/span&gt;&lt;span class="n"&gt;x&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt; &lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;decltype&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;a&lt;/span&gt; &lt;span class="o"&gt;&amp;gt;=&lt;/span&gt; &lt;span class="n"&gt;b&lt;/span&gt; &lt;span class="o"&gt;?&lt;/span&gt; &lt;span class="nl"&gt;a&lt;/span&gt; &lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="n"&gt;b&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="n"&gt;func3&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="n"&gt;b&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt; &lt;span class="o"&gt;&amp;gt;=&lt;/span&gt; &lt;span class="n"&gt;b&lt;/span&gt; &lt;span class="o"&gt;?&lt;/span&gt; &lt;span class="nl"&gt;a&lt;/span&gt; &lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="n"&gt;b&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt; &lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;struct&lt;/span&gt; &lt;span class="nc"&gt;S&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="n"&gt;m&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt; &lt;span class="p"&gt;};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;decltype&lt;/span&gt;&lt;span class="p"&gt;((&lt;/span&gt;&lt;span class="n"&gt;S&lt;/span&gt;&lt;span class="p"&gt;{}.&lt;/span&gt;&lt;span class="n"&gt;m&lt;/span&gt;&lt;span class="p"&gt;))&lt;/span&gt; &lt;span class="n"&gt;func4&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;void&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;S&lt;/span&gt;&lt;span class="p"&gt;{}.&lt;/span&gt;&lt;span class="n"&gt;m&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt; &lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;这里会直接用 &lt;code&gt;return&lt;/code&gt; 后的表达式替换 &lt;code&gt;decltype(auto)&lt;/code&gt; 的 auto 占位符，因此对于 &lt;code&gt;func1&lt;/code&gt; 来说，是否添加括号对应的是两种不同的语义。
+具体的推导类型如下：&lt;/p&gt;
+&lt;table&gt;
+	&lt;thead&gt;
+			&lt;tr&gt;
+					&lt;th&gt;函数名&lt;/th&gt;
+					&lt;th&gt;返回表达式值类别&lt;/th&gt;
+					&lt;th&gt;推导类型&lt;/th&gt;
+			&lt;/tr&gt;
+	&lt;/thead&gt;
+	&lt;tbody&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;code&gt;func1&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;左值&lt;/td&gt;
+					&lt;td&gt;int&amp;amp;&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;code&gt;func2&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;左值&lt;/td&gt;
+					&lt;td&gt;int&amp;amp;&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;code&gt;func3&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;左值&lt;/td&gt;
+					&lt;td&gt;int&amp;amp;&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;code&gt;func4&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;亡值&lt;/td&gt;
+					&lt;td&gt;int&amp;amp;&amp;amp;&lt;/td&gt;
+			&lt;/tr&gt;
+	&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;p&gt;由于均为引用绑定到局部变量或者临时量上，所以全部是悬垂引用。其实这几个例子并不是 decltype(auto) 的应用场景，其使用场景应该是
+用于返回值的&lt;a class="link" href="#%e5%ae%8c%e7%be%8e%e8%bd%ac%e5%8f%91" &gt;完美转发&lt;/a&gt;，像这样的普通情况使用 auto 的值语义就足够了。&lt;/p&gt;
+&lt;p&gt;而对于 requires 表达式中的复合语句来说，就相当于判断：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;static_assert&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;same_as&lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="k"&gt;decltype&lt;/span&gt;&lt;span class="p"&gt;((&lt;/span&gt;&lt;span class="n"&gt;a&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="n"&gt;b&lt;/span&gt;&lt;span class="p"&gt;)),&lt;/span&gt; &lt;span class="n"&gt;T&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;static_assert&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;same_as&lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="k"&gt;decltype&lt;/span&gt;&lt;span class="p"&gt;((&lt;/span&gt;&lt;span class="n"&gt;b&lt;/span&gt;&lt;span class="p"&gt;)),&lt;/span&gt; &lt;span class="kt"&gt;int&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;非常容易发现问题出在什么地方：&lt;code&gt;decltype((b))&lt;/code&gt; 得到的类型应该是 &lt;code&gt;int&amp;amp;&lt;/code&gt; 而不是 &lt;code&gt;int&lt;/code&gt;。对于复合要求来说，会将 &lt;code&gt;{}&lt;/code&gt; 内的表达式直接
+放入 &lt;code&gt;decltype(())&lt;/code&gt; 中。注意这里的两层括号，实际上是强制了 decltype 的功能二，将表达式的类型和值类别一起传入后面的约束中。&lt;/p&gt;
+&lt;h2 id="应用场景"&gt;&lt;a href="#%e5%ba%94%e7%94%a8%e5%9c%ba%e6%99%af" class="header-anchor"&gt;&lt;/a&gt;应用场景
+&lt;/h2&gt;&lt;p&gt;那上面这叽里呱啦讲了一大堆的规则究竟有啥用呢？下面的几个场景基本就是促使 C++ 搞出这坨东西的原因。&lt;/p&gt;
+&lt;h3 id="移动语义"&gt;&lt;a href="#%e7%a7%bb%e5%8a%a8%e8%af%ad%e4%b9%89" class="header-anchor"&gt;&lt;/a&gt;移动语义
+&lt;/h3&gt;&lt;p&gt;作为现代 C++ 中无人不知无人不晓最伟大的功能之一，&lt;del&gt;呃，应该吧&lt;/del&gt;，其完善了 C++ 的对象模型与生命周期管理的语义，并通过语言规则强制
+了某些优化，提升程序的性能。&lt;/p&gt;
+&lt;p&gt;如果你理解了前文的规则，就能够非常自然的知道移动语义是如何实现的。其本质上就是根据值类别选择更优的重载函数而已：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;struct&lt;/span&gt; &lt;span class="nc"&gt;foo&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="n"&gt;foo&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;void&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="n"&gt;foo&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="k"&gt;const&lt;/span&gt; &lt;span class="n"&gt;foo&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="n"&gt;foo&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;foo&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&amp;amp;&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="o"&gt;~&lt;/span&gt;&lt;span class="n"&gt;foo&lt;/span&gt;&lt;span class="p"&gt;();&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;foo&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;{};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;foo&lt;/span&gt; &lt;span class="n"&gt;b&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;move&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;以上就是移动语义最典型的用法，即显式告诉编译器我们不再需要某个对象，可以将它的资源转移而不是拷贝给另一个对象。
+以上面这段代码为例，使用 &lt;code&gt;std::move&lt;/code&gt; 将 &lt;code&gt;a&lt;/code&gt; 这个左值变为亡值表达式，然后重载决议选中 &lt;code&gt;foo&lt;/code&gt; 的移动构造函数对 &lt;code&gt;b&lt;/code&gt; 进行初始化，
+并在移动构造函数中将 &lt;code&gt;a&lt;/code&gt; 的资源给直接拿过来。而实际所有权的转移是写在构造函数中由程序员控制的，所以说 move 什么也没有移动。&lt;/p&gt;
+&lt;p&gt;从上我们也可以注意到右值引用类型的主要作用是作为函数参数，而不是像下面这样使用：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;string&lt;/span&gt; &lt;span class="n"&gt;str&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s"&gt;&amp;#34;Hello&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;string&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&amp;amp;&lt;/span&gt; &lt;span class="n"&gt;ref&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;move&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;str&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;这毫无意义，因为 &lt;code&gt;ref&lt;/code&gt; 和 &lt;code&gt;str&lt;/code&gt; 是等价的。&lt;/p&gt;
+&lt;blockquote class="alert alert-note"&gt;
+ &lt;div class="alert-header"&gt;
+ &lt;span class="alert-icon"&gt;📝&lt;/span&gt;
+ &lt;span class="alert-title"&gt;备注&lt;/span&gt;
+ &lt;/div&gt;
+ &lt;div class="alert-body"&gt;
+ &lt;p&gt;C++ 标准并没有规定被移动后的对象处于什么状态、是否合法或者能否被访问，这个取决于具体的设计决策。
+一般来说，至少对于标准库，访问被移动后的对象是安全的。&lt;/p&gt;
+ &lt;/div&gt;
+ &lt;/blockquote&gt;
+&lt;h3 id="完美转发"&gt;&lt;a href="#%e5%ae%8c%e7%be%8e%e8%bd%ac%e5%8f%91" class="header-anchor"&gt;&lt;/a&gt;完美转发
+&lt;/h3&gt;&lt;p&gt;既然右值配合上移动语义有这么多好处，那我们肯定不希望一个右值表达式传着传着就变成了左值。但偏偏右值引用类型的变量在使用时会
+退化成左值。对于非泛型代码还可以手动进行 &lt;code&gt;std::move&lt;/code&gt; 之类的操作，但如果是泛型代码呢？比如最最最经典的转发构造，
+常见于各种容器实现：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;template&lt;/span&gt; &lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="k"&gt;typename&lt;/span&gt; &lt;span class="n"&gt;T&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="k"&gt;typename&lt;/span&gt;&lt;span class="p"&gt;...&lt;/span&gt; &lt;span class="n"&gt;Args&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;T&lt;/span&gt;&lt;span class="o"&gt;*&lt;/span&gt; &lt;span class="n"&gt;construct_at&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;T&lt;/span&gt;&lt;span class="o"&gt;*&lt;/span&gt; &lt;span class="n"&gt;location&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;Args&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&amp;amp;&lt;/span&gt;&lt;span class="p"&gt;...&lt;/span&gt; &lt;span class="n"&gt;args&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="k"&gt;new&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;location&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="n"&gt;T&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="cm"&gt;/* 怎么填？*/&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;在绑定到 &lt;code&gt;args&lt;/code&gt; 的一堆表达式中很可能既有左值又有右值，如果直接将 &lt;code&gt;args&lt;/code&gt; 参数包展开，则会让所有参数以左值转发给构造函数，
+丧失优化机会。所以我们需要一种能根据原始值类别，自动的将 &lt;code&gt;args&lt;/code&gt; 包中的每一个引用转换为原来的值类别的工具，也就是左值按左值转发，
+右值按右值转发。而这就是 &lt;code&gt;std::forward&lt;/code&gt;。&lt;/p&gt;
+&lt;p&gt;我们先来看看 &lt;code&gt;std::forward&lt;/code&gt; 是怎么实现的：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;template&lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="k"&gt;typename&lt;/span&gt; &lt;span class="n"&gt;T&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;constexpr&lt;/span&gt; &lt;span class="n"&gt;T&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&amp;amp;&lt;/span&gt; &lt;span class="n"&gt;forward&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;remove_reference_t&lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="n"&gt;T&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&amp;amp;&lt;/span&gt; &lt;span class="n"&gt;t&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="k"&gt;noexcept&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="k"&gt;static_cast&lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="n"&gt;T&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&amp;amp;&amp;gt;&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;t&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;template&lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="k"&gt;typename&lt;/span&gt; &lt;span class="n"&gt;T&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;constexpr&lt;/span&gt; &lt;span class="n"&gt;T&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&amp;amp;&lt;/span&gt; &lt;span class="n"&gt;forward&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;remove_reference_t&lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="n"&gt;T&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&amp;amp;&amp;amp;&lt;/span&gt; &lt;span class="n"&gt;t&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="k"&gt;noexcept&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="k"&gt;static_assert&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="o"&gt;!&lt;/span&gt;&lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;is_lvalue_reference_v&lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="n"&gt;T&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s"&gt;&amp;#34;must not be used to convert an rvalue to an lvalue&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="k"&gt;static_cast&lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="n"&gt;T&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&amp;amp;&amp;gt;&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;t&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;可以看到，&lt;code&gt;std::forward&lt;/code&gt; 有两个重载版本，它们之间唯一的不同就是一个接收左值而另一个接收右值。在上面这个「转发函数形参」的场景下，
+显然只有第一个重载会被使用。同时需要注意的是这个函数的参数是不推导语境，无法从函数参数推导出模板参数，需要我们手动指定。
+当直接填写类型 &lt;code&gt;T&lt;/code&gt; 的时候会转换成亡值，按右值转发；而填写 &lt;code&gt;T&amp;amp;&lt;/code&gt; 左值引用类型时会按照左值转发。&lt;/p&gt;
+&lt;p&gt;仔细想想。。。Ummm，怎么感觉不太对，我怎么知道每个参数要转发成什么类型？其实很简单，我们可以注意到填写 &lt;code&gt;T&lt;/code&gt; 按照右值转发、
+填写 &lt;code&gt;T&amp;amp;&lt;/code&gt; 按照左值转发这个规则非常 “恰好” 的和万能引用模板参数推导规则对应上了：&lt;/p&gt;
+&lt;table&gt;
+	&lt;thead&gt;
+			&lt;tr&gt;
+					&lt;th&gt;绑定到函数的表达式类型和值类别&lt;/th&gt;
+					&lt;th&gt;推导出的模板参数&lt;/th&gt;
+					&lt;th&gt;需要在 forward 中填写的类型&lt;/th&gt;
+			&lt;/tr&gt;
+	&lt;/thead&gt;
+	&lt;tbody&gt;
+			&lt;tr&gt;
+					&lt;td&gt;std::string&amp;amp;&amp;amp;&lt;/td&gt;
+					&lt;td&gt;std::string&lt;/td&gt;
+					&lt;td&gt;std::string&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;std::string&amp;amp;&lt;/td&gt;
+					&lt;td&gt;std::string&amp;amp;&lt;/td&gt;
+					&lt;td&gt;std::string&amp;amp;&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;const int&amp;amp;&lt;/td&gt;
+					&lt;td&gt;const int&amp;amp;&lt;/td&gt;
+					&lt;td&gt;const int&amp;amp;&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;const int&amp;amp;&amp;amp;&lt;/td&gt;
+					&lt;td&gt;const int&lt;/td&gt;
+					&lt;td&gt;const int&lt;/td&gt;
+			&lt;/tr&gt;
+	&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;p&gt;所以在上面的例子中，我们直接拿推导出的模板参数扔给 &lt;code&gt;std::forward&lt;/code&gt; 就好了：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="k"&gt;new&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;location&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="n"&gt;T&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;forward&lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="n"&gt;Args&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;args&lt;/span&gt;&lt;span class="p"&gt;)...);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;正因如此，像 &lt;code&gt;T&amp;amp;&amp;amp;&lt;/code&gt;, &lt;code&gt;auto&amp;amp;&amp;amp;&lt;/code&gt; 这样的东西还有另一个名字叫做「转发引用」（不能有 &lt;code&gt;const&lt;/code&gt;），专门和 &lt;code&gt;std::forward&lt;/code&gt; 配合。&lt;/p&gt;
+&lt;p&gt;再来看看 &lt;code&gt;std::forward&lt;/code&gt; 接收右值的重载版本，不难看出这玩意唯一的用处是将右值按照右值转发 😑。。。我实在是想不到会在什么场景下
+使用这个重载，将一个右值转发为右值，&lt;code&gt;std::forward&lt;/code&gt; 的核心价值是将退化成左值的表达式给提升回右值，将一个已知是右值的东西再转换
+成右值还是太神人了，以至于连标准中给的例子都只使用了第一个重载版本。&lt;/p&gt;
+&lt;hr&gt;
+&lt;p&gt;除了函数参数会发生退化变成左值外，函数返回值也是另一个坑点，考虑这段代码：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;auto&lt;/span&gt; &lt;span class="nf"&gt;invoke&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="k"&gt;auto&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&amp;amp;&lt;/span&gt; &lt;span class="n"&gt;func&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="k"&gt;auto&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&amp;amp;&lt;/span&gt;&lt;span class="p"&gt;...&lt;/span&gt; &lt;span class="n"&gt;args&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;forward&lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="k"&gt;decltype&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;func&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;func&lt;/span&gt;&lt;span class="p"&gt;)(&lt;/span&gt;&lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;forward&lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="k"&gt;decltype&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;args&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;args&lt;/span&gt;&lt;span class="p"&gt;)...);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;注意 auto 类型推断单独出现的时候永远是值语义，不会自动变成引用语义，因此如果 &lt;code&gt;func&lt;/code&gt; 返回一个只读左值引用，这里就会发生拷贝
+而不是直接将该引用继续传递。所以我们希望的是将返回语句表达式中的类型和值类别作为该函数的返回类型，最直接的方式就是在函数末尾
+加上一个使用 &lt;code&gt;decltype&lt;/code&gt; 的尾随返回类型，然后把这个表达式在里面重新抄一遍。&lt;/p&gt;
+&lt;p&gt;当然，估计大伙都觉得一模一样的东西写两遍实在是糖丸了，所以在 C++14 中就整出了 &lt;code&gt;decltype(auto)&lt;/code&gt; 这个东西来自动实现这个功能：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;decltype&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="k"&gt;auto&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="n"&gt;invoke&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="k"&gt;auto&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&amp;amp;&lt;/span&gt; &lt;span class="n"&gt;func&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="k"&gt;auto&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&amp;amp;&lt;/span&gt;&lt;span class="p"&gt;...&lt;/span&gt; &lt;span class="n"&gt;args&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;&lt;code&gt;decltype(auto)&lt;/code&gt; 其实还可以在声明语句中使用，也就是将初始化器放到 &lt;code&gt;decltype&lt;/code&gt; 中，例如：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="p"&gt;{};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;decltype&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="k"&gt;auto&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt; &lt;span class="c1"&gt;// `a` is int
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;decltype&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="k"&gt;auto&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="n"&gt;b&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt; &lt;span class="c1"&gt;// `b` is int&amp;amp;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;但我基本找不到什么使用场景，也很少看见有人这样写，因此就不再展开了。&lt;/p&gt;
+&lt;h3 id="rvo"&gt;&lt;a href="#rvo" class="header-anchor"&gt;&lt;/a&gt;RVO
+&lt;/h3&gt;&lt;p&gt;RVO (Return Value Optimization) 是一种将函数返回值直接构造在调用方栈帧上以消除返回值临时对象乃至于局部变量的优化技术，
+是复制消除 (Copy Elision) 的一种。除了 RVO 外，C++ 中的复制消除规则还可以作用于异常对象和协程形参，在这里不会详细讨论。&lt;/p&gt;
+&lt;p&gt;一般来说，编译器优化会遵循「如同」原则，即一个正确的程序优化前后的可观测的副作用应当完全一致，但复制消除是为数不多的
+可以不遵循这个原则的优化机制之一。因为其会消除掉中间对象及其构造和析构函数的调用，而其中的任何的副作用也会一起消失。&lt;/p&gt;
+&lt;p&gt;众所周知，RVO 分为 URVO (Unnamed) 匿名返回值优化，和 NRVO (Named) 具名返回值优化，下面分别进行介绍。&lt;/p&gt;
+&lt;hr&gt;
+&lt;p&gt;现在再说 URVO 其实已经不太准确，因为其在 C++17 中已由语言规则强制保证，不能再被称作是优化，而是可预测的标准行为。比如说：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;struct&lt;/span&gt; &lt;span class="nc"&gt;foo&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="n"&gt;foo&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;void&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;println&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s"&gt;&amp;#34;Constructed&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt; &lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="n"&gt;foo&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="k"&gt;const&lt;/span&gt; &lt;span class="n"&gt;foo&lt;/span&gt; &lt;span class="o"&gt;&amp;amp;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;println&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s"&gt;&amp;#34;Copied&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt; &lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="n"&gt;foo&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;foo&lt;/span&gt; &lt;span class="o"&gt;&amp;amp;&amp;amp;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="k"&gt;noexcept&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;println&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s"&gt;&amp;#34;Moved&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt; &lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="o"&gt;~&lt;/span&gt;&lt;span class="n"&gt;foo&lt;/span&gt;&lt;span class="p"&gt;()&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;println&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s"&gt;&amp;#34;Destructed&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt; &lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;foo&lt;/span&gt; &lt;span class="nf"&gt;func&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;void&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="p"&gt;{};&lt;/span&gt; &lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="nf"&gt;main&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;void&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="k"&gt;auto&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;foo&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;foo&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;func&lt;/span&gt;&lt;span class="p"&gt;()));&lt;/span&gt; &lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;在 GCC16 下，以上代码只会进行一次构造和析构，不会有任何的中间对象。这和是否开启优化无关，
+甚至 &lt;code&gt;-fno-elide-constructors&lt;/code&gt; 这个 flag 也是不能阻止这个机制的：&lt;/p&gt;
+
+ &lt;blockquote&gt;
+ &lt;p&gt;Constructed&lt;br&gt;
+Destructed&lt;/p&gt;
+
+ &lt;/blockquote&gt;
+&lt;p&gt;而将 &lt;code&gt;foo&lt;/code&gt; 类的拷贝和移动函数进行弃置也会得到一样的结果。究其原因，是 C++17 中的一项新规则：
+&lt;strong&gt;非必须不会将纯右值实质化，并且它会被直接构造到其最终目标的存储中。&lt;/strong&gt;
+上面的 &lt;code&gt;func&lt;/code&gt; 产生纯右值之后，这个「幽灵」被一直传递到 &lt;code&gt;a&lt;/code&gt; 才发生实质化。&lt;/p&gt;
+&lt;p&gt;实践中只需要注意函数返回值必须是像上面这样的 prvalue，以及表达式的类型和函数返回类型要相同即可。&lt;/p&gt;
+&lt;hr&gt;
+&lt;p&gt;到了 NRVO 这边就要麻烦一点，标准没有也不太可能保证在哪些情况下会进行此类优化，但给出了可以进行这个优化的必要条件，我们要做的
+就是尽可能不要违背这些条件，然后把剩下的交给编译器：&lt;/p&gt;
+
+ &lt;blockquote&gt;
+ &lt;p&gt;在返回类型是类类型的函数中的 &lt;code&gt;return&lt;/code&gt; 语句中，
+当操作数是（函数形参和处理块形参以外的）具有自动存储期的非 volatile 对象 obj 的名字时，可以省略结果对象的复制初始化，
+改为将 obj 直接构造到函数调用的结果对象中。&lt;/p&gt;
+
+ &lt;/blockquote&gt;
+&lt;p&gt;这也是为什么下面这段代码是经典负优化的原因：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;auto&lt;/span&gt; &lt;span class="nf"&gt;func&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;void&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;vector&lt;/span&gt; &lt;span class="n"&gt;ret&lt;/span&gt;&lt;span class="p"&gt;{&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="mi"&gt;2&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="mi"&gt;3&lt;/span&gt;&lt;span class="p"&gt;};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="n"&gt;std&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="n"&gt;move&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;ret&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;显然 &lt;code&gt;std::move(ret)&lt;/code&gt; 并不是一个局部变量的名字，因此 NRVO 优化被禁用，必然会导致至少一次移动。&lt;/p&gt;
+&lt;p&gt;除此之外，还有以下场景会导致编译器无法进行 NRVO 优化：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;
+&lt;p&gt;含有分支导致无法确定返回的对象：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;foo&lt;/span&gt; &lt;span class="nf"&gt;func1&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="n"&gt;x&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="n"&gt;foo&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;{},&lt;/span&gt; &lt;span class="n"&gt;b&lt;/span&gt;&lt;span class="p"&gt;{};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;x&lt;/span&gt; &lt;span class="o"&gt;&amp;gt;&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="k"&gt;else&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="n"&gt;b&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;形参与非自动存储期对象：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;foo&lt;/span&gt; &lt;span class="nf"&gt;func2&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;foo&lt;/span&gt; &lt;span class="n"&gt;x&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="n"&gt;x&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt; &lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;foo&lt;/span&gt; &lt;span class="nf"&gt;func3&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;void&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;try&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="k"&gt;throw&lt;/span&gt; &lt;span class="n"&gt;foo&lt;/span&gt;&lt;span class="p"&gt;{};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;catch&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;foo&lt;/span&gt; &lt;span class="n"&gt;e&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="n"&gt;e&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;foo&lt;/span&gt; &lt;span class="nf"&gt;func4&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;void&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="k"&gt;static&lt;/span&gt; &lt;span class="n"&gt;foo&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;{};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;类型不匹配：&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-cpp" data-lang="cpp"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;struct&lt;/span&gt; &lt;span class="nc"&gt;bar&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="n"&gt;foo&lt;/span&gt; &lt;span class="n"&gt;m&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="kt"&gt;int&lt;/span&gt; &lt;span class="n"&gt;n&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;};&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;foo&lt;/span&gt; &lt;span class="nf"&gt;func5&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;void&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="n"&gt;bar&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="n"&gt;a&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="n"&gt;m&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;注意就算表达式 &lt;code&gt;a.m&lt;/code&gt; 的类型是 &lt;code&gt;foo&lt;/code&gt;，但由于编译器不可能将一个 &lt;code&gt;bar&lt;/code&gt; 对象拆成两块来构造，因此依然无法进行优化。&lt;/p&gt;
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;事实上要做到 100% 的 NRVO 是不可能也是没有必要的，这玩意在大多数情况下应该都不会成为性能瓶颈，
+如果非常在意的话可以在编译选项中添加 &lt;code&gt;-Wnrvo&lt;/code&gt; 来查看所有标准允许但实际上没有进行优化的地方。&lt;/p&gt;
+&lt;blockquote class="alert alert-note"&gt;
+ &lt;div class="alert-header"&gt;
+ &lt;span class="alert-icon"&gt;📝&lt;/span&gt;
+ &lt;span class="alert-title"&gt;备注&lt;/span&gt;
+ &lt;/div&gt;
+ &lt;div class="alert-body"&gt;
+ &lt;p&gt;这个优化依然需要可用的复制或移动构造函数。原因就在于作为一个有移动资格的表达式，其本质上依然是一个泛左值，
+在构造 “临时对象” 的时候必须要遵循语言规则，不能像传递纯右值那样省略构造函数。&lt;/p&gt;
+ &lt;/div&gt;
+ &lt;/blockquote&gt;
+&lt;h2 id="尾声"&gt;&lt;a href="#%e5%b0%be%e5%a3%b0" class="header-anchor"&gt;&lt;/a&gt;尾声
+&lt;/h2&gt;&lt;p&gt;前前后后磨了好长时间憋出来上面这一堆东西，只能说才初步窥见了 C++ 复杂性的冰山一角，各种神秘规则和特例已经没有人类了。
+虽然但是，写完之后回去检查了一下之前的代码，结果&lt;del&gt;惊奇的&lt;/del&gt;发现基本没有几个使用错误的情况 🤪。&lt;/p&gt;
+&lt;p&gt;事实证明只要记住几个最佳实践的公式代码，基本能够完全覆盖所有常见的使用场景，压根就不需要了解这一坨东西，凭直觉写就完事了。&lt;/p&gt;
+&lt;h2 id="reference"&gt;&lt;a href="#reference" class="header-anchor"&gt;&lt;/a&gt;Reference
+&lt;/h2&gt;&lt;ul&gt;
+&lt;li&gt;&lt;a class="link" href="https://nihil.cc/posts/cpp_lvalue_rvalue/" target="_blank" rel="noopener"
+ &gt;[C++] 深入了解左值与右值&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a class="link" href="https://www.scs.stanford.edu/~dm/blog/decltype.html" target="_blank" rel="noopener"
+ &gt;C++ 值类别和 decltype 解读&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a class="link" href="https://eel.is/c&amp;#43;&amp;#43;draft/" target="_blank" rel="noopener"
+ &gt;C++ Working Draft&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a class="link" href="https://zh.cppreference.com/cpp/language/value_category" target="_blank" rel="noopener"
+ &gt;值类别&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a class="link" href="https://zh.cppreference.com/cpp/language/copy_elision" target="_blank" rel="noopener"
+ &gt;复制消除&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a class="link" href="https://zh.cppreference.com/cpp/language/auto" target="_blank" rel="noopener"
+ &gt;占位类型说明符&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a class="link" href="https://zh.cppreference.com/cpp/language/decltype" target="_blank" rel="noopener"
+ &gt;decltype 说明符&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a class="link" href="https://zh.cppreference.com/cpp/language/reference" target="_blank" rel="noopener"
+ &gt;引用声明&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a class="link" href="https://zh.cppreference.com/cpp/language/reference_initialization" target="_blank" rel="noopener"
+ &gt;引用初始化&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="cover"&gt;&lt;a href="#cover" class="header-anchor"&gt;&lt;/a&gt;Cover
+&lt;/h2&gt;&lt;p&gt;&lt;a class="link" href="https://www.pixiv.net/artworks/119432115" target="_blank" rel="noopener"
+ &gt;深邃ToT | shiyan_ying&lt;/a&gt;&lt;/p&gt;</description></item><item><title>Xiaomi AX3000T AP 固件精简与配置：自定义 UBoot 与主线 OpenWrt</title><link>https://mirikaryu.github.io/post/openwrt-xiaomi_ax3000t/</link><pubDate>Mon, 06 Apr 2026 17:10:04 +0800</pubDate><guid>https://mirikaryu.github.io/post/openwrt-xiaomi_ax3000t/</guid><description>&lt;img src="https://mirikaryu.github.io/post/openwrt-xiaomi_ax3000t/cover.webp" alt="Featured image of post Xiaomi AX3000T AP 固件精简与配置：自定义 UBoot 与主线 OpenWrt" /&gt;&lt;h2 id="前言"&gt;&lt;a href="#%e5%89%8d%e8%a8%80" class="header-anchor"&gt;&lt;/a&gt;前言
 &lt;/h2&gt;&lt;p&gt;最近正在搭建一台5G CPE，因此需要找个 AP 来发射 WiFi 信号。最开始使用的方案是在软路由里面一个空闲的 M.2 M-Key 插槽上面插入一张
 转接 MT7922 进行射频，来来去去换了几次天线，倒腾了一个星期后发现信号质量甚至不如手机热点 😅。毕竟受限于发射功率
 （只有可怜的 3 dBm）只能使用 2.4 GHz 的频段，再加上只有 2X2 MIMO 以及不支持 WiFi-6 BeamForming 等技术的 debuff，
@@ -9,39 +838,56 @@
 &lt;h2 id="准备工作"&gt;&lt;a href="#%e5%87%86%e5%a4%87%e5%b7%a5%e4%bd%9c" class="header-anchor"&gt;&lt;/a&gt;准备工作
 &lt;/h2&gt;&lt;p&gt;作为一名（自认为）合格的赛博洁癖患者，自己编译干净的固件自然是必不可少的一环。大体的环境准备工作可以
 参照&lt;a class="link" href="https://openwrt.org/docs/guide-developer/toolchain/buildsystem_essentials" target="_blank" rel="noopener"
-&gt;官方文档&lt;/a&gt;进行，编译时如果遇到其它
+ &gt;官方文档&lt;/a&gt;进行，编译时如果遇到其它
 缺少依赖项的问题再根据自己的环境灵活变通即可。&lt;/p&gt;
 &lt;p&gt;还有就是由于需要对 Uboot 进行自定义，因此 Hard Brick 的风险大大增加了 😇，最好还可以准备一条串口转 USB 的线以防万一。&lt;/p&gt;
-&lt;blockquote&gt;
-&lt;p&gt;&lt;strong&gt;观前提示&lt;/strong&gt; ⚠️&lt;br&gt;
-这&lt;strong&gt;不是&lt;/strong&gt;一篇完全新手向的文章，并且我也不能确定其中的所有操作是否正确无误。如果你不能理解在刷入过程中的每一步
+&lt;blockquote class="alert alert-warning"&gt;
+ &lt;div class="alert-header"&gt;
+ &lt;span class="alert-icon"&gt;⚠️&lt;/span&gt;
+ &lt;span class="alert-title"&gt;观前提示&lt;/span&gt;
+ &lt;/div&gt;
+ &lt;div class="alert-body"&gt;
+ &lt;p&gt;这&lt;strong&gt;不是&lt;/strong&gt;一篇完全新手向的文章，并且我也不能确定其中的所有操作是否正确无误。如果你不能理解在刷入过程中的每一步
 操作意味着什么，请&lt;strong&gt;立即停止&lt;/strong&gt;并严格按照主线 OpenWrt 的&lt;a class="link" href="https://openwrt.org/inbox/toh/xiaomi/ax3000t" target="_blank" rel="noopener"
-&gt;官方文档&lt;/a&gt;进行操作。
+ &gt;官方文档&lt;/a&gt;进行操作。
 本人不对任何 data loss 或者 bricking 负责。&lt;/p&gt;
-&lt;/blockquote&gt;
+ &lt;/div&gt;
+ &lt;/blockquote&gt;
 &lt;h2 id="刷入-openwrt-主线固件"&gt;&lt;a href="#%e5%88%b7%e5%85%a5-openwrt-%e4%b8%bb%e7%ba%bf%e5%9b%ba%e4%bb%b6" class="header-anchor"&gt;&lt;/a&gt;刷入 OpenWrt 主线固件
 &lt;/h2&gt;&lt;p&gt;诶，等等，不是要自己编译固件吗？怎么直接刷主线固件了？这是因为主线固件的工具和环境相比我们的精简版完善得多，可以先在主线版本中
 确认自己的硬件信息、对总体的网络配置进行验证、以及在自定义固件出现奇怪行为的时候进行对照，总之，
 保留一份主线固件备用还是很有必要的。&lt;/p&gt;
 &lt;p&gt;然后就可以按照&lt;a class="link" href="https://openwrt.org/inbox/toh/xiaomi/ax3000t#flash_instructions" target="_blank" rel="noopener"
-&gt;文档&lt;/a&gt;的指引开 SSH，&lt;strong&gt;备份相关分区&lt;/strong&gt;，
+ &gt;文档&lt;/a&gt;的指引开 SSH，&lt;strong&gt;备份相关分区&lt;/strong&gt;，
 然后刷入 Uboot 和 OpenWrt。如果发现没法使用 &lt;code&gt;apk&lt;/code&gt; 下载 &lt;code&gt;kmod-mtd-rw&lt;/code&gt; 这个包，可以到以下 URL 寻找并手动下载这个包：&lt;/p&gt;
-&lt;blockquote&gt;
-&lt;p&gt;&lt;a class="link" href="https://downloads.openwrt.org/releases/" target="_blank" rel="noopener"
-&gt;https://downloads.openwrt.org/releases/&lt;/a&gt;&amp;lt;Distro 版本&amp;gt;/targets/mediatek/filogic/kmods/&amp;lt;内核版本&amp;gt;/&lt;/p&gt;
-&lt;/blockquote&gt;
+
+ &lt;blockquote&gt;
+ &lt;p&gt;&lt;a class="link" href="https://downloads.openwrt.org/releases/" target="_blank" rel="noopener"
+ &gt;https://downloads.openwrt.org/releases/&lt;/a&gt;&amp;lt;Distro 版本&amp;gt;/targets/mediatek/filogic/kmods/&amp;lt;内核版本&amp;gt;/&lt;/p&gt;
+
+ &lt;/blockquote&gt;
 &lt;p&gt;用 &lt;code&gt;scp&lt;/code&gt; 上传到路由器之后使用以下命令安装：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;apk add --allow-untrusted --force-non-repository ./&amp;lt;你的文件名&amp;gt;
-&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;这里再次强调一下一定要备份 &lt;strong&gt;Factory&lt;/strong&gt; 这个分区，其它的分区如果不考虑换回原厂固件其实可以不太关注，但这个分区存放的是
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;blockquote class="alert alert-important"&gt;
+ &lt;div class="alert-header"&gt;
+ &lt;span class="alert-icon"&gt;📌&lt;/span&gt;
+ &lt;span class="alert-title"&gt;重要&lt;/span&gt;
+ &lt;/div&gt;
+ &lt;div class="alert-body"&gt;
+ &lt;p&gt;再次强调一下一定要备份 &lt;strong&gt;Factory&lt;/strong&gt; 这个分区，其它的分区如果不考虑换回原厂固件其实可以不太关注，但这个分区存放的是
 WiFi 校准数据，一机一份，丢了的话就喜提一台4口千兆交换机。&lt;/p&gt;
+ &lt;/div&gt;
+ &lt;/blockquote&gt;
 &lt;hr&gt;
 &lt;p&gt;进入新的 OpenWrt 系统后我们可以使用这行命令来查看自己的交换机芯片：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;dmesg &lt;span class="p"&gt;|&lt;/span&gt; grep -e an8855 -e mtk_soc_eth
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;我的运气比较好，抽中的是 RD03v1 的版本，因此显示的是：&lt;/p&gt;
-&lt;blockquote&gt;
-&lt;p&gt;[ 2.208970] an8855-switch an8855-switch.2.auto: probe with driver an8855-switch failed with error -110&lt;br&gt;
+
+ &lt;blockquote&gt;
+ &lt;p&gt;[ 2.208970] an8855-switch an8855-switch.2.auto: probe with driver an8855-switch failed with error -110&lt;br&gt;
 [ 2.224236] mtk_soc_eth 15100000.ethernet eth0: mediatek frame engine at 0xffffffc081580000, irq 75&lt;/p&gt;
-&lt;/blockquote&gt;
+
+ &lt;/blockquote&gt;
 &lt;p&gt;然后使用 &lt;code&gt;cat /proc/mtd&lt;/code&gt; 来查看一下主线 ubootmod 版本的默认分区表：&lt;/p&gt;
 &lt;pre tabindex="0"&gt;&lt;code&gt;dev: size erasesize name
 mtd0: 00100000 00020000 &amp;#34;BL2&amp;#34;
@@ -70,20 +916,26 @@ Trusted Boot Firmware，&lt;code&gt;FIP&lt;/code&gt; (Firmware Image Package) �
 对于需要频繁写入的数据来说直接使用此接口会造成严重的问题，&lt;del&gt;你也不想用一小会就报废了吧&lt;/del&gt;。所以，我们需要通过 UBI
 (Unsorted Block Images) 这个管理层进行控制。UBI 很像 LVM，但其主要用途是为了进行磨损均衡，即维护一个逻辑擦除块到物理擦除块的
 映射，使得每次写入都能尽可能的分摊到每个块上。UBI 也使用分卷进行管理，每个分卷和 MTD 的表现类似，提供字符设备和可选的块设备接口。&lt;/p&gt;
-&lt;blockquote&gt;
-&lt;p&gt;&lt;strong&gt;提示&lt;/strong&gt; ℹ️&lt;br&gt;
-到后面你可能会发现清除配置文件是通过直接移除再创建 &lt;code&gt;rootfs_data&lt;/code&gt; 这个 UBI 卷来实现的，这个过程是在 UBoot 中完成的，且并没有将
+&lt;blockquote class="alert alert-tip"&gt;
+ &lt;div class="alert-header"&gt;
+ &lt;span class="alert-icon"&gt;💡&lt;/span&gt;
+ &lt;span class="alert-title"&gt;提示&lt;/span&gt;
+ &lt;/div&gt;
+ &lt;div class="alert-body"&gt;
+ &lt;p&gt;到后面你可能会发现清除配置文件是通过直接移除再创建 &lt;code&gt;rootfs_data&lt;/code&gt; 这个 UBI 卷来实现的，这个过程是在 UBoot 中完成的，且并没有将
 其格式化为 UBIFS 文件系统。但为何系统仍然可以正常启动？难道是 UBI 创建分卷的时候会自动格式化？&lt;/p&gt;
 &lt;p&gt;如果我们在清除完数据之后再启动系统，查看 &lt;code&gt;dmesg&lt;/code&gt; 可以发现其实是内核在启动的时候帮我们完成了这一步：&lt;/p&gt;
-&lt;blockquote&gt;
-&lt;p&gt;[ 8.239123] UBIFS (ubi0:1): default file-system created&lt;/p&gt;
-&lt;/blockquote&gt;
-&lt;/blockquote&gt;
-&lt;br&gt;
-再向上就是我们相对熟悉的一般文件系统了，这里主要使用 UBIFS 和 SquashFS/EROFS。这里需要单独把 UBIFS 给拎出来，因为只有它是基于
-字符设备接口的文件系统，而其余两个都是基于块设备的。而至于具体的文件系统有什么特点此处不再展开，查阅资料即可。
+
+ &lt;blockquote&gt;
+ &lt;p&gt;[ 8.239123] UBIFS (ubi0:1): default file-system created&lt;/p&gt;
+
+ &lt;/blockquote&gt;
+ &lt;/div&gt;
+ &lt;/blockquote&gt;
+&lt;p&gt;再向上就是我们相对熟悉的一般文件系统了，这里主要使用 UBIFS 和 SquashFS/EROFS。这里需要单独把 UBIFS 给拎出来，因为只有它是基于
+字符设备接口的文件系统，而其余两个都是基于块设备的。而至于具体的文件系统有什么特点此处不再展开，查阅资料即可。&lt;/p&gt;
 &lt;p&gt;更多信息可以查看&lt;a class="link" href="https://openwrt.org/docs/techref/flash.layout" target="_blank" rel="noopener"
-&gt;文档&lt;/a&gt;。&lt;/p&gt;
+ &gt;文档&lt;/a&gt;。&lt;/p&gt;
 &lt;hr&gt;
 &lt;p&gt;安装完主线固件后可以尝试一下 UBoot 的 TFTP 启动方式，后面我们很可能会频繁地使用这个方法来加载临时系统。&lt;/p&gt;
 &lt;p&gt;先将路由器下电，然后戳着 Reset 按钮再插上电源，等待指示灯变成蓝色后就可以松开了。将上位机的 IP 设置为 &lt;code&gt;192.168.1.254&lt;/code&gt; 并确保
@@ -93,7 +945,7 @@ Trusted Boot Firmware，&lt;code&gt;FIP&lt;/code&gt; (Firmware Image Package) �
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;sudo dnsmasq -i &amp;lt;连接路由器的链路名称&amp;gt; -d --port&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="m"&gt;0&lt;/span&gt; --enable-tftp --tftp-root&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="k"&gt;$(&lt;/span&gt;&lt;span class="nb"&gt;pwd&lt;/span&gt;&lt;span class="k"&gt;)&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;由于需要绑定的为特权端口 &lt;code&gt;69&lt;/code&gt;, 因此需要 Root 权限。使用 &lt;code&gt;-d&lt;/code&gt; 开启 debug 模式，&lt;code&gt;--port=0&lt;/code&gt; 禁用 DNS 功能，剩下的两个选项用于开启
 TFTP Server。&lt;/p&gt;
-&lt;p&gt;当你能够在输出中看到 &amp;ldquo;Send xxx&amp;rdquo; 的时候就说明 UBoot 已经获取到镜像文件并启动了。&lt;/p&gt;
+&lt;p&gt;当你能够在输出中看到 &amp;quot;Send xxx&amp;quot; 的时候就说明 UBoot 已经获取到镜像文件并启动了。&lt;/p&gt;
 &lt;h2 id="配置自定义-openwrt-固件"&gt;&lt;a href="#%e9%85%8d%e7%bd%ae%e8%87%aa%e5%ae%9a%e4%b9%89-openwrt-%e5%9b%ba%e4%bb%b6" class="header-anchor"&gt;&lt;/a&gt;配置自定义 OpenWrt 固件
 &lt;/h2&gt;&lt;p&gt;我们先从 Github Mirror 拉取源码并进行 menuconfig：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;git clone https://github.com/openwrt/openwrt
@@ -101,7 +953,7 @@ TFTP Server。&lt;/p&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;make menuconfig
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;由于我们的目标是配置出一个专为 AP 服务的精简固件，因此不需要去执行 &lt;code&gt;./scripts/feeds update -a&lt;/code&gt; 之类的操作，使用默认软件包即可。&lt;/p&gt;
 &lt;p&gt;然后就可以开始配置了，下文所有的配置都会放到&lt;a class="link" href="https://github.com/MirikaRyu/netcfg" target="_blank" rel="noopener"
-&gt;我的仓库&lt;/a&gt;中，可以使用 &lt;code&gt;git apply&lt;/code&gt; 直接
+ &gt;我的仓库&lt;/a&gt;中，可以使用 &lt;code&gt;git apply&lt;/code&gt; 直接
 应用这些 patches。&lt;/p&gt;
 &lt;h3 id="目标配置"&gt;&lt;a href="#%e7%9b%ae%e6%a0%87%e9%85%8d%e7%bd%ae" class="header-anchor"&gt;&lt;/a&gt;目标配置
 &lt;/h3&gt;&lt;p&gt;前3个 Target System, Subtarget, Target Profile 分别选择 MediaTek ARM, Filogic 8x0, Xiaomi AX3000T (U-Boot layout) 即可。&lt;/p&gt;
@@ -116,7 +968,7 @@ TFTP Server。&lt;/p&gt;
 &lt;h3 id="构建选项"&gt;&lt;a href="#%e6%9e%84%e5%bb%ba%e9%80%89%e9%a1%b9" class="header-anchor"&gt;&lt;/a&gt;构建选项
 &lt;/h3&gt;&lt;p&gt;进入 Global build settings，里面绝大部分选项都不需要修改。&lt;/p&gt;
 &lt;p&gt;找到 Gernel build options 下的 Kernel build options，里面控制了内核相关的功能和编译选项，可根据具体需求更改。
-接下来把 Package build options 中的第 2,3,4 项都勾上，这三个选项分别是 &lt;code&gt;-ffuntion-sections --gc-sections&lt;/code&gt;, &lt;code&gt;-flto&lt;/code&gt; 以及使用号称
+接下来把 Package build options 中的第 2, 3, 4 项都勾上，这三个选项分别是 &lt;code&gt;-ffuntion-sections --gc-sections&lt;/code&gt;, &lt;code&gt;-flto&lt;/code&gt; 以及使用号称
 速度最快的链接器（如果你发现有别的比它快，可以去提交 bug report 🤣）。不过需要注意的是可能有极少数包在开启 LTO 后会出问题，
 不过我还没有遇到过，因此先保持开启。&lt;/p&gt;
 &lt;p&gt;下面的加固选项 Hardening build options 也可根据自己的需求调整，具体每个选项是什么意思可以去询问 LLM，总体上每个等级开得越高，
@@ -125,7 +977,7 @@ TFTP Server。&lt;/p&gt;
 &lt;p&gt;然后是 Advanced configuration options。&lt;/p&gt;
 &lt;p&gt;找到 &lt;code&gt;ccache&lt;/code&gt;，好东西，编译缓存，反复编译的时候能加加速。
 向下翻到 Target Options，里面有一个 Target Optimizations 的选项，里面默认开的是 &lt;code&gt;-Os&lt;/code&gt; 即优化占用空间，我们将它改成 &lt;code&gt;-O2&lt;/code&gt;，
-优化运行速度。当然我也不太确定开启后是否会造成不良影响，总之 &amp;ldquo;It works on my machine&amp;rdquo;。&lt;/p&gt;
+优化运行速度。当然我也不太确定开启后是否会造成不良影响，总之 &amp;quot;It works on my machine&amp;quot;。&lt;/p&gt;
 &lt;hr&gt;
 &lt;p&gt;最后这个 Image configuration 开启后可以设置一些系统基本信息，可按需配置。里面 Seperate feed repositories 中的选项基本用不上，
 可以全关了。&lt;/p&gt;
@@ -147,16 +999,21 @@ TFTP Server。&lt;/p&gt;
 从而无法使用 SSH 连接。至于 &lt;code&gt;apk-mbedtls&lt;/code&gt; 和 &lt;code&gt;ca-bundle&lt;/code&gt;，如果确定不再需要通过包管理器安装额外的软件包就可以直接扬了。&lt;/p&gt;
 &lt;p&gt;接下来 AX3000T 作为 AP 还需要&lt;strong&gt;添加&lt;/strong&gt; &lt;code&gt;bridger&lt;/code&gt; 这个软件包用于从 WLAN 到 LAN 的 WED (Wireless Ethernet Dispatch)。
 根据文档的说法，这个功能可以将无线流量直接卸载到硬件进行转发从而缓解 CPU 压力。&lt;/p&gt;
+&lt;blockquote class="alert alert-tip"&gt;
+ &lt;div class="alert-header"&gt;
+ &lt;span class="alert-icon"&gt;💡&lt;/span&gt;
+ &lt;span class="alert-title"&gt;提示&lt;/span&gt;
+ &lt;/div&gt;
+ &lt;div class="alert-body"&gt;
+ &lt;p&gt;这个包需要 LLVM 的 eBPF 工具链，从头编译的时候需要编译整个 LLVM 🙃。&lt;br&gt;
+有人向 Kernel 提了 Patch 来在内核中实现这个包的功能，不过目前貌似中道崩殂了？反正 6.12 的这个版本应该是依然需要这个包的。&lt;/p&gt;
+ &lt;/div&gt;
+ &lt;/blockquote&gt;
 &lt;p&gt;但是，还记得开头说的使用链路聚合的坑吗？&lt;/p&gt;
-&lt;p&gt;如果你像我一样打算使用链路聚合的话这个包和 WED 功能就没有什么用处了，实际测试下来开启与否 CPU 都会被吃满。根据 LLM 的说法，
+&lt;p&gt;如果你像我一样打算使用链路聚合的话 &lt;code&gt;bridger&lt;/code&gt; 和 WED 功能就没有什么用处了，实际测试下来开启与否 CPU 都会被吃满。根据 LLM 的说法，
 像链路聚合这种 packet 必须要经过内核处理的协议，是无法直接通过硬件进行转发的。&lt;/p&gt;
 &lt;p&gt;其它信息可以进一步查看具体的&lt;a class="link" href="https://openwrt.org/docs/guide-user/network/wifi/wed" target="_blank" rel="noopener"
-&gt;Wiki&lt;/a&gt;页面。&lt;/p&gt;
-&lt;blockquote&gt;
-&lt;p&gt;&lt;strong&gt;提示&lt;/strong&gt; ℹ️&lt;br&gt;
-这个包需要 LLVM 的 eBPF 工具链，从头编译的时候需要编译整个 LLVM 🙃。&lt;br&gt;
-有人向 Kernel 提了 Patch 来在内核中实现这个包的功能，不过目前貌似中道崩殂了？反正 6.12 的这个版本应该是依然需要这个包的。&lt;/p&gt;
-&lt;/blockquote&gt;
+ &gt;Wiki&lt;/a&gt;页面。&lt;/p&gt;
 &lt;h3 id="network--网络工具"&gt;&lt;a href="#network--%e7%bd%91%e7%bb%9c%e5%b7%a5%e5%85%b7" class="header-anchor"&gt;&lt;/a&gt;Network / 网络工具
 &lt;/h3&gt;&lt;p&gt;在下面那一堆未分类的选项中只需要保留作为依赖项的 &lt;code&gt;iw&lt;/code&gt; 以及 &lt;code&gt;uclient-fetch&lt;/code&gt;。由于不需要进行 WAN 拨号，因此可以移除 &lt;code&gt;ppp&lt;/code&gt; 这个包。&lt;/p&gt;
 &lt;p&gt;然后在 Routing and Redirection 中选择前述的 &lt;code&gt;ip-full&lt;/code&gt;。&lt;/p&gt;
@@ -170,7 +1027,7 @@ TFTP Server。&lt;/p&gt;
 &lt;h3 id="其它配置"&gt;&lt;a href="#%e5%85%b6%e5%ae%83%e9%85%8d%e7%bd%ae" class="header-anchor"&gt;&lt;/a&gt;其它配置
 &lt;/h3&gt;&lt;p&gt;剩余的选项的描述应该也非常清晰了，大多数都是作为依赖项出现被强制选择的。有几点需要说明的如下：&lt;/p&gt;
 &lt;ul&gt;
-&lt;li&gt;Boot Loaders 中只选择第一个，即包含 &amp;ldquo;mt7981,ddr3&amp;rdquo; 的那个即可。&lt;/li&gt;
+&lt;li&gt;Boot Loaders 中只选择第一个，即包含 &amp;quot;mt7981,ddr3&amp;quot; 的那个即可。&lt;/li&gt;
 &lt;li&gt;Utilities -&amp;gt; Boot Loaders 中有一个 &lt;code&gt;uboot-envtools&lt;/code&gt;，由于后面要折腾 UBoot，没有这个基本寸步难行，不建议删除。
 但由于这个包会创建 &lt;code&gt;/etc/config/ubootenv&lt;/code&gt; 这个意义不明的文件，要是真想删除可以在调试完 UBoot 后再删。&lt;/li&gt;
 &lt;li&gt;Libraries 下有一个 &lt;code&gt;libustream-mbedtls&lt;/code&gt; 这个包，好像是用来给包管理器做 HTTPS 认证的，如果前面保留了包管理器这里也要保留这个。&lt;/li&gt;
@@ -182,7 +1039,7 @@ TFTP Server。&lt;/p&gt;
 &lt;h2 id="配置自定义-uboot-固件"&gt;&lt;a href="#%e9%85%8d%e7%bd%ae%e8%87%aa%e5%ae%9a%e4%b9%89-uboot-%e5%9b%ba%e4%bb%b6" class="header-anchor"&gt;&lt;/a&gt;配置自定义 UBoot 固件
 &lt;/h2&gt;&lt;p&gt;我们自定义 UBoot 的目的主要为开启 Netconsole，规范分区以及自定义启动行为。&lt;/p&gt;
 &lt;h3 id="开启-netconsole"&gt;&lt;a href="#%e5%bc%80%e5%90%af-netconsole" class="header-anchor"&gt;&lt;/a&gt;开启 Netconsole
-&lt;/h3&gt;&lt;p&gt;在刚见到这玩意的时候还以为是串口的完全上位替代品，怎么用怎么舒服，直到某次重启之后发现 UBoot 卡死了&amp;hellip; 😵&lt;/p&gt;
+&lt;/h3&gt;&lt;p&gt;在刚见到这玩意的时候还以为是串口的完全上位替代品，怎么用怎么舒服，直到某次重启之后发现 UBoot 卡死了... 😵&lt;/p&gt;
 &lt;p&gt;尽管如此，我依旧认为这是在路由器这类难以直接连接 tty 的设备上很重要的一个功能，它能够让你在不用拆机连接串口的情况下获得一个 tty。
 但不知为何网上的对这个功能讨论度低的可怜，就连 OpenWrt 的文档中都没怎么提到 🤔。&lt;/p&gt;
 &lt;p&gt;我们先来看看主线 UBoot 的 Netconsole 如何开启。&lt;/p&gt;
@@ -217,14 +1074,14 @@ CONFIG_SYS_CONSOLE_IS_IN_ENV=y
 &lt;code&gt;serial,nc&lt;/code&gt;（并没有接串口验证是否真的可以 multiplex 🤪）。第二个则是显式指明了可以在环境变量中设置输入输出流。
 &lt;del&gt;虽然默认配置好像就可以&lt;/del&gt;&lt;/p&gt;
 &lt;p&gt;更多 UBoot Netconsole 的用法可以查阅&lt;a class="link" href="https://docs.u-boot.org/en/latest/usage/netconsole.html" target="_blank" rel="noopener"
-&gt;文档&lt;/a&gt;。&lt;/p&gt;
+ &gt;文档&lt;/a&gt;。&lt;/p&gt;
 &lt;hr&gt;
 &lt;p&gt;现在你可能又会遇到一个问题：这些配置文件在哪里，我要怎么修改？&lt;/p&gt;
 &lt;p&gt;这些机器特定的 UBoot 配置均以补丁文件的形式存放在 &lt;code&gt;packages/boot/uboot-mediatek/patches&lt;/code&gt; 目录下，像这台 AX3000T 的补丁文件名就叫
 &lt;code&gt;440-add-xiaomi_mi-router-ax3000t.patch&lt;/code&gt;。一般来说，修改这些文件要使用 OpenWrt 专门处理 patches 的机制，即 Quilt。&lt;/p&gt;
 &lt;p&gt;但是，虽然是个昏招，显然不如直接修改补丁文件要来的直接。我们这里对整个项目的改动并不大，也不用考虑提交给上游，因此可以直接修改
 补丁文件然后祈祷上游不要对这个文件再做什么改动 (&lt;del&gt;又不是不能用&lt;/del&gt;)。就是修改的时候要比较小心，需要遵守 patch 文件的格式。如果构建时
-报错 &amp;ldquo;Failed to apply patch&amp;rdquo; 之类的，就回来检查一下格式。Patch 文件的具体格式询问 LLM 即可。&lt;/p&gt;
+报错 &amp;quot;Failed to apply patch&amp;quot; 之类的，就回来检查一下格式。Patch 文件的具体格式询问 LLM 即可。&lt;/p&gt;
 &lt;h3 id="规范默认分区"&gt;&lt;a href="#%e8%a7%84%e8%8c%83%e9%bb%98%e8%ae%a4%e5%88%86%e5%8c%ba" class="header-anchor"&gt;&lt;/a&gt;规范默认分区
 &lt;/h3&gt;&lt;p&gt;我们的目标是将整个系统的分区表变成下面这样：&lt;/p&gt;
 &lt;pre tabindex="0"&gt;&lt;code&gt;dev: size erasesize name
@@ -243,8 +1100,8 @@ mtd4: 07120000 00020000 &amp;#34;Sys&amp;#34;
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;};&lt;/span&gt;&lt;span class="w"&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;具体含义如下：&lt;/p&gt;
 &lt;pre tabindex="0"&gt;&lt;code&gt;partition@形式起始地址 {
-label = &amp;#34;显示的标签&amp;#34;;
-reg = &amp;lt;真实起始地址 分区大小&amp;gt;;
+ label = &amp;#34;显示的标签&amp;#34;;
+ reg = &amp;lt;真实起始地址 分区大小&amp;gt;;
 }
 &lt;/code&gt;&lt;/pre&gt;&lt;p&gt;后面内核设备树的定义方式也是类似的。&lt;/p&gt;
 &lt;p&gt;然后我们就可以给分区改名，或者将分区进行合并了。注意要计算好合并后的大小和偏移量以及不要去动那3个分区即可。&lt;/p&gt;
@@ -280,9 +1137,11 @@ reg = &amp;lt;真实起始地址 分区大小&amp;gt;;
 &lt;pre tabindex="0"&gt;&lt;code class="language-conf" data-lang="conf"&gt;ipaddr=192.168.1.1
 ncip=192.168.1.254
 serverip=192.168.1.254
+
 led_rec=blue:status
 led_pwr=yellow:status
 console=earlycon=uart8250,mmio32,0x11002000 console=ttyS0
+
 loadaddr=0x46000000
 bootconf=config-1
 bootfile=recovery.itb
@@ -349,7 +1208,7 @@ reset_factory=mtd erase $mtd_env_name; ubi part $ubi_name; ubi remove $ubi_vol_d
 &lt;p&gt;按键检测比较简单，逻辑如下：&lt;/p&gt;
 &lt;pre tabindex="0"&gt;&lt;code class="language-conf" data-lang="conf"&gt;check_mesh=if button mesh; then run boot_tftp_recovery; fi
 check_reset=if button reset; then led $led_rec on; run reset_factory; reset; fi
-set_title=setenv bootmenu_title &amp;#34; [0;34m( ( ( [1;39mOpenWrt[0;34m ) ) ) [33m${ver}[0m&amp;#34;
+set_title=setenv bootmenu_title &amp;#34; [0;34m( ( ( [1;39mOpenWrt[0;34m ) ) ) [33m${ver}[0m&amp;#34;
 &lt;/code&gt;&lt;/pre&gt;&lt;p&gt;主线的 Mesh 按钮是没有定义功能的，但如果每次想启动 Recovery Ramdisk 都要去戳 Reset 按钮好像有点太蠢了，所以我这里将 Mesh 按钮
 定义为直接进行 TFTP Recovery Boot，而 Reset 按钮则是进行恢复出厂。动态设置 &lt;code&gt;bootmenu_title&lt;/code&gt; 的逻辑也放在了这里。&lt;/p&gt;
 &lt;p&gt;但如果把以上的逻辑放在 &lt;code&gt;bootcmd&lt;/code&gt; 中执行的话那需要在 &lt;code&gt;bootmenu_delay&lt;/code&gt; 结束后才会被触发，因此这里需要用到 UBoot 的 Preboot 功能，
@@ -360,21 +1219,26 @@ set_title=setenv bootmenu_title &amp;#34; [0;34m( ( ( [1;39mOpenWrt[0;34m ) )
 &lt;/code&gt;&lt;/pre&gt;&lt;p&gt;以及一个 &lt;code&gt;bootcmd&lt;/code&gt;：&lt;/p&gt;
 &lt;pre tabindex="0"&gt;&lt;code class="language-conf" data-lang="conf"&gt;bootcmd=run ubi_boot; run boot_tftp_recovery
 &lt;/code&gt;&lt;/pre&gt;&lt;p&gt;这里和主线固件不一样的是在恢复模式下路由器的指示灯会变成紫色 🫨。&lt;/p&gt;
-&lt;blockquote&gt;
-&lt;p&gt;&lt;strong&gt;注意&lt;/strong&gt; ⚠️&lt;br&gt;
-永远确保任何一个启动路径最后都有个 Fallback 兜底，或者是永远能够拿到 UBoot Shell，这样只要 UBoot 没死都能救得回来。&lt;/p&gt;
-&lt;/blockquote&gt;
+&lt;blockquote class="alert alert-important"&gt;
+ &lt;div class="alert-header"&gt;
+ &lt;span class="alert-icon"&gt;📌&lt;/span&gt;
+ &lt;span class="alert-title"&gt;重要&lt;/span&gt;
+ &lt;/div&gt;
+ &lt;div class="alert-body"&gt;
+ &lt;p&gt;永远确保任何一个启动路径最后都有个 Fallback 兜底，或者是永远能够拿到 UBoot Shell，这样只要 UBoot 没死都能救得回来。&lt;/p&gt;
+ &lt;/div&gt;
+ &lt;/blockquote&gt;
 &lt;h2 id="配置自定义内核设备树"&gt;&lt;a href="#%e9%85%8d%e7%bd%ae%e8%87%aa%e5%ae%9a%e4%b9%89%e5%86%85%e6%a0%b8%e8%ae%be%e5%a4%87%e6%a0%91" class="header-anchor"&gt;&lt;/a&gt;配置自定义内核设备树
 &lt;/h2&gt;&lt;p&gt;内核这边的修改相比 UBoot 就要轻松多了，这边主要修改几个网口的名称以及分区表。&lt;/p&gt;
 &lt;p&gt;在 &lt;code&gt;target/linux/mediatek/dts&lt;/code&gt; 这个目录下应该能够找到 &lt;code&gt;mt7981b-xiaomi-mi-router-common.dtsi&lt;/code&gt;
 和 &lt;code&gt;mt7981b-xiaomi-mi-router-ax3000t-ubootmod.dts&lt;/code&gt;，我们只需要修改这两个设备树文件。&lt;/p&gt;
 &lt;h3 id="修改网口名称"&gt;&lt;a href="#%e4%bf%ae%e6%94%b9%e7%bd%91%e5%8f%a3%e5%90%8d%e7%a7%b0" class="header-anchor"&gt;&lt;/a&gt;修改网口名称
-&lt;/h3&gt;&lt;p&gt;先打开带 &amp;ldquo;common&amp;rdquo; 的那个文件，直接在里面搜索 &amp;ldquo;wan&amp;rdquo;，应该会出来两个地方，分别对应联发科的 MT7531AE 以及 AN8855 两种交换机，
+&lt;/h3&gt;&lt;p&gt;先打开带 &amp;quot;common&amp;quot; 的那个文件，直接在里面搜索 &amp;quot;wan&amp;quot;，应该会出来两个地方，分别对应联发科的 MT7531AE 以及 AN8855 两种交换机，
 可以都修改了，找到每个 &lt;code&gt;port&lt;/code&gt; 中的 &lt;code&gt;label&lt;/code&gt;，改成喜欢的名字即可。不过两个交换机中都各有一个和其它有点不同的 &lt;code&gt;port&lt;/code&gt;，我猜测这个
 是交换机连接 SoC 的端口，就不需要修改了。&lt;/p&gt;
 &lt;h3 id="修改内核分区表"&gt;&lt;a href="#%e4%bf%ae%e6%94%b9%e5%86%85%e6%a0%b8%e5%88%86%e5%8c%ba%e8%a1%a8" class="header-anchor"&gt;&lt;/a&gt;修改内核分区表
-&lt;/h3&gt;&lt;p&gt;操作和 UBoot 的大同小异，依旧是先打开带 &amp;ldquo;common&amp;rdquo; 的设备树文件，找到 &lt;code&gt;spi_nand&lt;/code&gt;，该合并的合并，该删除的删除，不要动那3个分区。
-然后打开另一个 &amp;ldquo;ubootmod&amp;rdquo; 的设备树文件，计算好 &lt;code&gt;Sys&lt;/code&gt; 分区的起始地址和偏移量再修改即可。&lt;/p&gt;
+&lt;/h3&gt;&lt;p&gt;操作和 UBoot 的大同小异，依旧是先打开带 &amp;quot;common&amp;quot; 的设备树文件，找到 &lt;code&gt;spi_nand&lt;/code&gt;，该合并的合并，该删除的删除，不要动那3个分区。
+然后打开另一个 &amp;quot;ubootmod&amp;quot; 的设备树文件，计算好 &lt;code&gt;Sys&lt;/code&gt; 分区的起始地址和偏移量再修改即可。&lt;/p&gt;
 &lt;p&gt;唯一需要注意的是内核设备树这边可以添加 &lt;code&gt;read-only;&lt;/code&gt; 只读属性，添加了这个属性的分区如果想被写入需要加载 &lt;code&gt;mtd-rw&lt;/code&gt; 这个内核模块。&lt;/p&gt;
 &lt;h2 id="编译新固件并刷入"&gt;&lt;a href="#%e7%bc%96%e8%af%91%e6%96%b0%e5%9b%ba%e4%bb%b6%e5%b9%b6%e5%88%b7%e5%85%a5" class="header-anchor"&gt;&lt;/a&gt;编译新固件并刷入
 &lt;/h2&gt;&lt;p&gt;完成以上步骤之后就可以进行完整的构建了，构建产物在 &lt;code&gt;bin/targets/mediatek/filogic&lt;/code&gt; 这个目录下。&lt;/p&gt;
@@ -386,9 +1250,15 @@ set_title=setenv bootmenu_title &amp;#34; [0;34m( ( ( [1;39mOpenWrt[0;34m ) )
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;如果以上的 diff 结果一致或者只有编译时间和文件尾部的 32B 的校验值不一样的话那就说明编译过程基本没出什么问题。&lt;/p&gt;
 &lt;hr&gt;
 &lt;p&gt;接下来就要刷入我们编译好的固件了。&lt;/p&gt;
-&lt;blockquote&gt;
-&lt;p&gt;&lt;strong&gt;警告 ⚠️：刷写 UBoot 的过程中出现错误或者 UBoot 本身有问题可能会导致必须使用串口或者编程器修复&lt;/strong&gt;&lt;/p&gt;
-&lt;/blockquote&gt;
+&lt;blockquote class="alert alert-caution"&gt;
+ &lt;div class="alert-header"&gt;
+ &lt;span class="alert-icon"&gt;🚨&lt;/span&gt;
+ &lt;span class="alert-title"&gt;注意&lt;/span&gt;
+ &lt;/div&gt;
+ &lt;div class="alert-body"&gt;
+ &lt;p&gt;刷写 UBoot 的过程中出现错误或者 UBoot 本身有问题可能会导致必须使用串口或者编程器修复&lt;/p&gt;
+ &lt;/div&gt;
+ &lt;/blockquote&gt;
 &lt;p&gt;先通过 UBoot 的 TFTP 启动&lt;strong&gt;主线&lt;/strong&gt;的 initramfs recovery 镜像，和刷主线 UBoot 类似，先加载 &lt;code&gt;mtd-rw&lt;/code&gt;，然后再上传自己的镜像并使用
 以下命令刷入：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;mtd write /tmp/openwrt-mediatek-filogic-xiaomi_mi-router-ax3000t-ubootmod-bl31-uboot.fip FIP
@@ -401,7 +1271,7 @@ set_title=setenv bootmenu_title &amp;#34; [0;34m( ( ( [1;39mOpenWrt[0;34m ) )
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;ubidetach -p /dev/mtd4
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;ubiformat -y /dev/mtd4
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;ubiattach -p /dev/mtd4
-&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;如果遇到在 detach 的时候遇到 &amp;ldquo;Device or resource busy&amp;rdquo; 的错误，这是可能是由于有几个奇怪的服务和内核线程占用了该 UBI 卷。直接使用
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;如果遇到在 detach 的时候遇到 &amp;quot;Device or resource busy&amp;quot; 的错误，这是可能是由于有几个奇怪的服务和内核线程占用了该 UBI 卷。直接使用
 &lt;code&gt;mtd erase&lt;/code&gt; 暴力抹除该分区，擦除完成后重启即可生效。但是注意这样做会丢失原来统计的擦除计数，不利于磨损均衡。&lt;/p&gt;
 &lt;p&gt;格式化完新分区后可以直接使用 &lt;code&gt;sysupgrade&lt;/code&gt; 完成安装：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;sysupgrade -n /tmp/openwrt-mediatek-filogic-xiaomi_mi-router-ax3000t-ubootmod-squashfs-sysupgrade.itb
@@ -483,14 +1353,14 @@ set_title=setenv bootmenu_title &amp;#34; [0;34m( ( ( [1;39mOpenWrt[0;34m ) )
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nx"&gt;option&lt;/span&gt; &lt;span class="nx"&gt;key&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;&amp;lt;Your Passwd&amp;gt;&amp;#39;&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;以上是一个 2.4 GHz 频段的配置，5 GHz 基本就是复制粘贴一份。其中具体每项配置是什么含义该如何选择
 在&lt;a class="link" href="https://openwrt.org/docs/guide-user/network/wifi/basic" target="_blank" rel="noopener"
-&gt;这里&lt;/a&gt;已经有很详细的说明了，此处不再赘述。&lt;/p&gt;
+ &gt;这里&lt;/a&gt;已经有很详细的说明了，此处不再赘述。&lt;/p&gt;
 &lt;p&gt;最后如果要开启 WEB 功能，需要在 &lt;code&gt;/etc/modules.conf&lt;/code&gt; 中手动指定模块加载参数，重启生效：&lt;/p&gt;
 &lt;pre tabindex="0"&gt;&lt;code class="language-conf" data-lang="conf"&gt;options mt7915e wed_enable=Y
 &lt;/code&gt;&lt;/pre&gt;&lt;p&gt;虽然说开启了链路聚合之后 PPE 就不能加速从 WLAN 到 LAN 的流量了，但兴许 WLAN 之间的流量依然可以加速 🤔？&lt;/p&gt;
 &lt;h3 id="uboot-环境变量修改"&gt;&lt;a href="#uboot-%e7%8e%af%e5%a2%83%e5%8f%98%e9%87%8f%e4%bf%ae%e6%94%b9" class="header-anchor"&gt;&lt;/a&gt;UBoot 环境变量修改
 &lt;/h3&gt;&lt;p&gt;由于我们修改了存放 UBoot 环境变量的位置，因此需要修改 &lt;code&gt;/etc/fw_env.config&lt;/code&gt; 来指明新位置：&lt;/p&gt;
 &lt;pre tabindex="0"&gt;&lt;code&gt;# Device Offset Size EraseSize
-/dev/mtd1 0x0 0x60000 0x20000
+ /dev/mtd1 0x0 0x60000 0x20000
 &lt;/code&gt;&lt;/pre&gt;&lt;p&gt;默认配置文件结尾有个莫名其妙的数字，删掉后工具才能够正常工作。&lt;/p&gt;
 &lt;p&gt;在我的网络环境下，主路由已经占用了 &lt;code&gt;192.168.1.1&lt;/code&gt; 这个 IP 了，这就需要将 UBoot 的 IP 进行更改以免造成冲突：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;fw_setenv ipaddr 192.168.1.2
@@ -499,7 +1369,7 @@ set_title=setenv bootmenu_title &amp;#34; [0;34m( ( ( [1;39mOpenWrt[0;34m ) )
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h2 id="自定义-nfc-标签内容"&gt;&lt;a href="#%e8%87%aa%e5%ae%9a%e4%b9%89-nfc-%e6%a0%87%e7%ad%be%e5%86%85%e5%ae%b9" class="header-anchor"&gt;&lt;/a&gt;自定义 NFC 标签内容
 &lt;/h2&gt;&lt;p&gt;这台小米 AX3000T 还带了一个通过 I2C 总线连接的 NFC 芯片，用于非接触连接 WiFi，如果你只是想将标签里的内容更新为自己的 SSID，直接
 使用&lt;a class="link" href="https://github.com/Caian/xinfc" target="_blank" rel="noopener"
-&gt;这个项目&lt;/a&gt;并按照 Readme 进行操作即可。&lt;/p&gt;
+ &gt;这个项目&lt;/a&gt;并按照 Readme 进行操作即可。&lt;/p&gt;
 &lt;p&gt;但如果你想往这个标签里写点有意思的东西就可以继续往下看。&lt;/p&gt;
 &lt;p&gt;这个标签里的数据格式叫做 NDEF，是由 NFC 论坛搓出来的标准，涵盖了各种数据格式。我们可以在上位机使用 Python 的 &lt;code&gt;ndeflib&lt;/code&gt; 这个库
 实现对 NDEF 数据的编解码。比如现在我想将我的博客 URI 写到标签里，就可以用下面的 Python 脚本生成 payload：&lt;/p&gt;
@@ -516,7 +1386,7 @@ set_title=setenv bootmenu_title &amp;#34; [0;34m( ( ( [1;39mOpenWrt[0;34m ) )
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="n"&gt;os&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;write&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;result&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;这个库编码出的数据不带 TLV 类型标签，因此需要手动补上。如果有其它想写入的数据类型，
 查看&lt;a class="link" href="https://ndeflib.readthedocs.io/en/stable/index.html" target="_blank" rel="noopener"
-&gt;文档&lt;/a&gt;并询问 LLM 即可。&lt;/p&gt;
+ &gt;文档&lt;/a&gt;并询问 LLM 即可。&lt;/p&gt;
 &lt;p&gt;然后我们将脚本的输出重定向到 bin 文件：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;./make.py &amp;gt; nfc.bin
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;那现在要怎么将这个 payload 写入呢？&lt;/p&gt;
@@ -524,7 +1394,7 @@ set_title=setenv bootmenu_title &amp;#34; [0;34m( ( ( [1;39mOpenWrt[0;34m ) )
 payload（原项目就是这么多 🫠），超出的部分会被截断。另外由于交叉编译环境配置很麻烦，因此这个程序能够不依赖 libc 和 CRT，
 理论上找一个&lt;strong&gt;任意&lt;/strong&gt;的 AArch64 GCC/Clang 即可编译然后在路由器上使用。&lt;/p&gt;
 &lt;p&gt;先从&lt;a class="link" href="https://github.com/MirikaRyu/netcfg/tree/main/ap-ax3000t/tools/nfc.cpp" target="_blank" rel="noopener"
-&gt;仓库&lt;/a&gt;获取文件 &lt;code&gt;nfc.cpp&lt;/code&gt;，并使用这行命令编译出
+ &gt;仓库&lt;/a&gt;获取文件 &lt;code&gt;nfc.cpp&lt;/code&gt;，并使用这行命令编译出
 可执行程序 &lt;code&gt;nfc&lt;/code&gt;：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;aarch64-linux-gnu-g++ -std&lt;span class="o"&gt;=&lt;/span&gt;c++20 -O2 -nostdlib -ffreestanding -static nfc.cpp -o nfc
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;如果你不想或者不会找新的编译器，切换到 OpenWrt 目录，使用现成的也可以：&lt;/p&gt;
@@ -533,11 +1403,16 @@ payload（原项目就是这么多 🫠），超出的部分会被截断。另�
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;上面具体 toolchain 的路径会因具体版本而不同。&lt;/p&gt;
 &lt;p&gt;接着将 &lt;code&gt;nfc.bin&lt;/code&gt; 和 &lt;code&gt;nfc&lt;/code&gt; 上传到路由器。执行以下命令备份原有内容 &lt;del&gt;好像备份了也没啥用&lt;/del&gt;：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;./nfc dump &amp;gt; nfc.bak
-&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;blockquote&gt;
-&lt;p&gt;&lt;strong&gt;提示&lt;/strong&gt; ℹ️&lt;br&gt;
-如果你在编译时将读写的 buffer 开得比较大，可能会发现 dump 出来的数据从 896 字节开始又有新的内容，这些内容可能与 NFC 芯片的
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;blockquote class="alert alert-note"&gt;
+ &lt;div class="alert-header"&gt;
+ &lt;span class="alert-icon"&gt;📝&lt;/span&gt;
+ &lt;span class="alert-title"&gt;备注&lt;/span&gt;
+ &lt;/div&gt;
+ &lt;div class="alert-body"&gt;
+ &lt;p&gt;如果你在编译时将读写的 buffer 开得比较大，可能会发现 dump 出来的数据从 896 字节开始又有新的内容，这些内容可能与 NFC 芯片的
 配置/锁定区有关，不建议触碰。&lt;/p&gt;
-&lt;/blockquote&gt;
+ &lt;/div&gt;
+ &lt;/blockquote&gt;
 &lt;p&gt;然后将自己的 payload 写入，写入完成后可以再 dump 出来查看其内容：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;./nfc write &amp;lt; nfc.bin
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;./nfc dump &lt;span class="p"&gt;|&lt;/span&gt; hexdump
@@ -548,14 +1423,16 @@ payload（原项目就是这么多 🫠），超出的部分会被截断。另�
 要让 LLM 改改上面的那个脚本。然后在路由器上安装 &lt;code&gt;i2c-tools&lt;/code&gt;：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-shell" data-lang="shell"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;apk add i2c-tools
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;接下来使用下面这个提示词让 LLM 帮你完成一个 Shell 脚本：&lt;/p&gt;
-&lt;blockquote&gt;
-&lt;p&gt;帮我完成一个运行在小米 AX3000T OpenWrt ash 环境下的 Shell 脚本，要求如下：&lt;/p&gt;
+
+ &lt;blockquote&gt;
+ &lt;p&gt;帮我完成一个运行在小米 AX3000T OpenWrt ash 环境下的 Shell 脚本，要求如下：&lt;/p&gt;
 &lt;ol&gt;
 &lt;li&gt;从标准输入接收一个纯文本的 NFC NDEF payload，每个字节均按照空格分隔，字节不包含前后缀，总字节数不得超过 160&lt;/li&gt;
 &lt;li&gt;将读取到的字节使用 i2c-tools 中的 i2ctransfer 写入总线 0，地址为 0x57 的 NFC 芯片的 0x10 寄存器中&lt;/li&gt;
 &lt;li&gt;该设备为双字节寻址的设备，只有 i2ctransfer 能够处理这种设备&lt;/li&gt;
 &lt;/ol&gt;
-&lt;/blockquote&gt;
+
+ &lt;/blockquote&gt;
 &lt;p&gt;最后将生成的 Shell 脚本和 payload 上传到路由器，按照 LLM 给出的步骤进行操作，然后祈祷能够成功。&lt;/p&gt;
 &lt;p&gt;什么？你问我为什么不用后者？那是因为我写完代码之后才发现可以用 &lt;code&gt;i2ctransfer&lt;/code&gt; 处理双字节寻址的设备 🤡。&lt;/p&gt;
 &lt;h2 id="使用体验"&gt;&lt;a href="#%e4%bd%bf%e7%94%a8%e4%bd%93%e9%aa%8c" class="header-anchor"&gt;&lt;/a&gt;使用体验
@@ -564,6 +1441,7 @@ payload（原项目就是这么多 🫠），超出的部分会被截断。另�
 Count of UBI devices: 1
 UBI control device major/minor: 10:256
 Present UBI devices: ubi0
+
 ubi0
 Volumes count: 2
 Logical eraseblock size: 126976 bytes, 124.0 KiB
@@ -576,6 +1454,7 @@ Current maximum erase counter value: 3
 Minimum input/output unit size: 2048 bytes
 Character device major/minor: 251:0
 Present volumes: 0, 1
+
 Volume ID: 0 (on ubi0)
 Type: dynamic
 Alignment: 1
@@ -603,31 +1482,34 @@ Character device major/minor: 251:2
 真的方便，坐等 usystemd 🤤。&lt;/p&gt;
 &lt;p&gt;说回 OpenWrt 这边，这玩意是我到目前为止用过的唯一一个 &lt;code&gt;/bin&lt;/code&gt;, &lt;code&gt;/sbin&lt;/code&gt;, &lt;code&gt;/usr/bin&lt;/code&gt;, &lt;code&gt;/usr/sbin&lt;/code&gt; 完全分开的发行版，我想不到
 有什么不把这些目录合并的理由，真是要逼死强迫症了 🙄。还有它的文档，怎么说呢 🤔。。。。。。👆🤓 诶，不如 ArchLinux！不过说实话
-我也不太确定 OpenWrt 的文档水平到底如何，反正在链路聚合那里有几个参数在 OpenWrt 的文档里压根找不到 😑。&lt;/p&gt;</description></item><item><title>QEMU/VFIO: Windows Guest 折腾记录</title><link>https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/</link><pubDate>Wed, 31 Dec 2025 18:25:01 +0800</pubDate><guid>https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/</guid><description>&lt;img src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/cover.webp" alt="Featured image of post QEMU/VFIO: Windows Guest 折腾记录" /&gt;&lt;h2 id="前言"&gt;&lt;a href="#%e5%89%8d%e8%a8%80" class="header-anchor"&gt;&lt;/a&gt;前言
+我也不太确定 OpenWrt 的文档水平到底如何，反正在链路聚合那里有几个参数在 OpenWrt 的文档里压根找不到 😑。&lt;/p&gt;
+&lt;h2 id="cover"&gt;&lt;a href="#cover" class="header-anchor"&gt;&lt;/a&gt;Cover
+&lt;/h2&gt;&lt;p&gt;&lt;a class="link" href="https://www.pixiv.net/artworks/134966569" target="_blank" rel="noopener"
+ &gt;艾玛x雪 | 彗星-C&lt;/a&gt;&lt;/p&gt;</description></item><item><title>QEMU/VFIO: Windows Guest 折腾记录</title><link>https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/</link><pubDate>Wed, 31 Dec 2025 18:25:01 +0800</pubDate><guid>https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/</guid><description>&lt;img src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/cover.webp" alt="Featured image of post QEMU/VFIO: Windows Guest 折腾记录" /&gt;&lt;h2 id="前言"&gt;&lt;a href="#%e5%89%8d%e8%a8%80" class="header-anchor"&gt;&lt;/a&gt;前言
 &lt;/h2&gt;&lt;p&gt;由于小时候不懂事在沟槽的 Microsoft Store 上买了个 Horizon 4，以及 Linux (Wayland) 上一直缺乏一个好用的 Office 软件，
 一直想搭建一个体验如同真机的 Windows 虚拟机，即开机接管所有外围设备并直接进入 Windows，关机也会将整台电脑一起关闭。&lt;/p&gt;
 &lt;p&gt;你说为什么不 Dual Boot 🧐？&lt;/p&gt;
-&lt;p&gt;Hummm&amp;hellip; 答案是现在应该（大概？）没有人能够将 Windows 直接安装在一个 LVM 的 logic volume 上吧：&lt;/p&gt;
+&lt;p&gt;Hummm... 答案是现在应该（大概？）没有人能够将 Windows 直接安装在一个 LVM 的 logic volume 上吧：&lt;/p&gt;
 &lt;pre tabindex="0"&gt;&lt;code&gt;NAME FSTYPE LABEL SIZE FSAVAIL FSUSE% MOUNTPOINTS
-sda 931.5G
-└─sda1 LVM2_member 931.5G
-├─Data-steamos btrfs 512G
-├─Data-private crypto_LUKS 80G
-├─Data-secrets crypto_LUKS 4G
-├─Data-windows 256G
-└─Data-ventoy btrfs 64G
-nvme1n1 476.9G
-└─nvme1n1p1 LVM2_member 476.9G
-├─Home-archlinux btrfs 208G 77.6G 61% /home
-├─Home-steamos btrfs 64G
-└─Home-windows btrfs 64G
-nvme0n1 232.9G
+sda 931.5G 
+└─sda1 LVM2_member 931.5G 
+ ├─Data-steamos btrfs 512G 
+ ├─Data-private crypto_LUKS 80G 
+ ├─Data-secrets crypto_LUKS 4G 
+ ├─Data-windows 256G 
+ └─Data-ventoy btrfs 64G 
+nvme1n1 476.9G 
+└─nvme1n1p1 LVM2_member 476.9G 
+ ├─Home-archlinux btrfs 208G 77.6G 61% /home
+ ├─Home-steamos btrfs 64G 
+ └─Home-windows btrfs 64G 
+nvme0n1 232.9G 
 ├─nvme0n1p1 vfat EFI 6G 5.8G 3% /efi
-└─nvme0n1p2 LVM2_member 226.9G
-├─Root-swap swap 32G [SWAP]
-├─Root-archlinux btrfs 80G 50.5G 36% /
-├─Root-steamos btrfs 64G
-└─Root-windows btrfs 4G
+└─nvme0n1p2 LVM2_member 226.9G 
+ ├─Root-swap swap 32G [SWAP]
+ ├─Root-archlinux btrfs 80G 50.5G 36% /
+ ├─Root-steamos btrfs 64G 
+ └─Root-windows btrfs 4G 
 &lt;/code&gt;&lt;/pre&gt;&lt;p&gt;&lt;del&gt;三块盘完美符合 Memory Hierarchy&lt;/del&gt;&lt;br&gt;
 在这种磁盘布局下很难在不失灵活性的同时单独安装 Windows。&lt;/p&gt;
 &lt;p&gt;在继续之前先对照一下平台配置：&lt;/p&gt;
@@ -649,8 +1531,16 @@ nvme0n1 232.9G
 &lt;li&gt;极难调试，喜欢我虚拟机启动后把你的配置文件给改了吗？&lt;/li&gt;
 &lt;/ul&gt;
 &lt;p&gt;VFIO PCI 设备直通和硬件平台本身的联系非常密切，请一定根据&lt;strong&gt;你的硬件配置&lt;/strong&gt;选择应该采用哪些步骤、如何配置。&lt;/p&gt;
-&lt;p&gt;如果你是按照我接下来的方法配置的 Windows Guest，请&lt;strong&gt;绝对不要&lt;/strong&gt;在 Windows 中开启内核隔离/Hyper-V 等依赖虚拟化的功能，
+&lt;blockquote class="alert alert-warning"&gt;
+ &lt;div class="alert-header"&gt;
+ &lt;span class="alert-icon"&gt;⚠️&lt;/span&gt;
+ &lt;span class="alert-title"&gt;警告&lt;/span&gt;
+ &lt;/div&gt;
+ &lt;div class="alert-body"&gt;
+ &lt;p&gt;如果你是按照我接下来的方法配置的 Windows Guest，请&lt;strong&gt;绝对不要&lt;/strong&gt;在 Windows 中开启内核隔离/Hyper-V 等依赖虚拟化的功能，
 否则重启后可能会卡在启动界面无法进入 Greeter。&lt;del&gt;如果你能在 WinRE 中挂载分区修改注册表那可以试试&lt;/del&gt;&lt;/p&gt;
+ &lt;/div&gt;
+ &lt;/blockquote&gt;
 &lt;p&gt;虽然虚拟机到最后确实是跑在一个 headless 的 ArchLinux 上的，但是在安装 Windows 时由于没有显卡驱动所以可能需要使用 QEMU 的图形后端
 （如 GTK, VNC）来显示 VGA 输出。&lt;/p&gt;
 &lt;p&gt;我这边是在另一个系统的桌面环境上安装配置完成后再迁移到目标系统的，当然在目标系统上安装图形环境后再卸载也是可行的。&lt;/p&gt;
@@ -729,7 +1619,7 @@ Windows 的性能。CPU 拓扑和内存如果没有什么性能需求随便分�
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;-chardev socket,id&lt;span class="o"&gt;=&lt;/span&gt;ch0,path&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s2"&gt;&amp;#34;&lt;/span&gt;&lt;span class="nv"&gt;$XDG_RUNTIME_DIR&lt;/span&gt;&lt;span class="s2"&gt;/tpm_sock&amp;#34;&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;-tpmdev emulator,id&lt;span class="o"&gt;=&lt;/span&gt;tpm0,chardev&lt;span class="o"&gt;=&lt;/span&gt;ch0
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;-device tpm-tis,tpmdev&lt;span class="o"&gt;=&lt;/span&gt;tpm0
-&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;前两行指定了 UEFI 固件和存储设置的 NVRAM 文件。如果你希望使用 Secure Boot，那么第一个 UEFI 固件必须选择带 &amp;ldquo;secboot&amp;rdquo; 字样的文件，
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;前两行指定了 UEFI 固件和存储设置的 NVRAM 文件。如果你希望使用 Secure Boot，那么第一个 UEFI 固件必须选择带 &amp;quot;secboot&amp;quot; 字样的文件，
 这个在不同发行版之间的名字差别不大。但对于第二个 NVRAM 模板文件，不同发行版之间的差异较大。如果你是 ArchLinux 用户，
 那么请参阅后面的&lt;a class="link" href="#%e5%ae%89%e5%85%a8%e5%90%af%e5%8a%a8" &gt;安全启动&lt;/a&gt;这一小节；如果你使用 Fedora，那么应该能够找到一个 enroll 了微软证书的 secboot NVRAM 模板，
 直接拷贝后使用即可开启 Secure Boot。&lt;/p&gt;
@@ -754,24 +1644,8 @@ Windows 的性能。CPU 拓扑和内存如果没有什么性能需求随便分�
 因此使用这个 Function Number 区分不同的功能。&lt;/li&gt;
 &lt;/ol&gt;
 &lt;p&gt;接下来看一下 PCIe 的拓扑结构：&lt;/p&gt;
-&lt;p&gt;&lt;img src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/img/pcie-01.webp"
-width="2027"
-height="1342"
-loading="lazy"
-alt="PCIe-Topology"
-class="gallery-image"
-data-flex-grow="151"
-data-flex-basis="362px"
-&gt;
-&lt;img src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/img/pcie-02.webp"
-width="2118"
-height="1342"
-loading="lazy"
-alt="PCIe-Switch"
-class="gallery-image"
-data-flex-grow="157"
-data-flex-basis="378px"
-&gt;&lt;/p&gt;
+&lt;p&gt;&lt;img alt="PCIe-Topology" class="gallery-image" data-flex-basis="362px" data-flex-grow="151" height="1342" loading="lazy" sizes="(max-width: 767px) calc(100vw - 30px), (max-width: 1023px) 700px, (max-width: 1279px) 950px, 1232px" src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/img/pcie-01.webp" width="2027"&gt;
+&lt;img alt="PCIe-Switch" class="gallery-image" data-flex-basis="378px" data-flex-grow="157" height="1342" loading="lazy" sizes="(max-width: 767px) calc(100vw - 30px), (max-width: 1023px) 700px, (max-width: 1279px) 950px, 1232px" src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/img/pcie-02.webp" width="2118"&gt;&lt;/p&gt;
 &lt;p&gt;在一个纯 PCIe 环境中，应该只有三种设备：Root Complex (RC)，PCIe Switch 和 Endpoint Device：&lt;/p&gt;
 &lt;ul&gt;
 &lt;li&gt;RC 是整个 PCIe 拓扑的起始点，所有的下游设备都要连接到 RC 的端口上，也称为 PCIe Root Port，即根端口。RC 并不是一个具体的硬件，
@@ -784,41 +1658,41 @@ data-flex-basis="378px"
 &lt;/ul&gt;
 &lt;p&gt;下面以我系统中的 PCIe 拓扑为例：&lt;/p&gt;
 &lt;pre tabindex="0"&gt;&lt;code&gt;-[0000:00]-+-00.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Root Complex [1022:14d8]
-+-00.2 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge IOMMU [1022:14d9]
-+-01.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
-+-01.1-[01-03]----00.0-[02-03]----00.0-[03]--+-00.0 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XT/7900 XTX/7900 GRE/7900M] [1002:744c]
-| +-00.1 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 HDMI/DP Audio [1002:ab30]
-| +-00.2 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 USB [1002:7446]
-| \-00.3 Advanced Micro Devices, Inc. [AMD/ATI] Device [1002:7444]
-+-01.2-[04]----00.0 Samsung Electronics Co Ltd NVMe SSD Controller PM9A1/PM9A3/980PRO [144d:a80a]
-+-02.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
-+-02.1-[05-0d]----00.0-[06-0d]--+-00.0-[07]--
-| +-08.0-[08]--
-| +-09.0-[09]--
-| +-0a.0-[0a]----00.0 Intel Corporation Ethernet Controller I226-V [8086:125c]
-| +-0b.0-[0b]----00.0 MEDIATEK Corp. MT7925 802.11be 160MHz 2x2 PCIe Wireless Network Adapter [Filogic 360] [14c3:7925]
-| +-0c.0-[0c]----00.0 Advanced Micro Devices, Inc. [AMD] 800 Series Chipset USB 3.x XHCI Controller [1022:43fc]
-| \-0d.0-[0d]----00.0 Advanced Micro Devices, Inc. [AMD] 600 Series Chipset SATA Controller [1022:43f6]
-+-02.2-[0e]----00.0 Phison Electronics Corporation E12 NVMe Controller [1987:5012]
-+-03.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
-+-04.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
-+-08.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
-+-08.1-[0f]--+-00.0 Advanced Micro Devices, Inc. [AMD/ATI] Granite Ridge [Radeon Graphics] [1002:13c0]
-| +-00.1 Advanced Micro Devices, Inc. [AMD/ATI] Radeon High Definition Audio Controller [1002:1640]
-| +-00.2 Advanced Micro Devices, Inc. [AMD] Family 19h PSP/CCP [1022:1649]
-| +-00.3 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b6]
-| \-00.4 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b7]
-+-08.3-[10]----00.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 2.0 xHCI [1022:15b8]
-+-14.0 Advanced Micro Devices, Inc. [AMD] FCH SMBus Controller [1022:790b]
-+-14.3 Advanced Micro Devices, Inc. [AMD] FCH LPC Bridge [1022:790e]
-+-18.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 0 [1022:14e0]
-+-18.1 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 1 [1022:14e1]
-+-18.2 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 2 [1022:14e2]
-+-18.3 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 3 [1022:14e3]
-+-18.4 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 4 [1022:14e4]
-+-18.5 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 5 [1022:14e5]
-+-18.6 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 6 [1022:14e6]
-\-18.7 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 7 [1022:14e7]
+ +-00.2 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge IOMMU [1022:14d9]
+ +-01.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
+ +-01.1-[01-03]----00.0-[02-03]----00.0-[03]--+-00.0 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XT/7900 XTX/7900 GRE/7900M] [1002:744c]
+ | +-00.1 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 HDMI/DP Audio [1002:ab30]
+ | +-00.2 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 USB [1002:7446]
+ | \-00.3 Advanced Micro Devices, Inc. [AMD/ATI] Device [1002:7444]
+ +-01.2-[04]----00.0 Samsung Electronics Co Ltd NVMe SSD Controller PM9A1/PM9A3/980PRO [144d:a80a]
+ +-02.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
+ +-02.1-[05-0d]----00.0-[06-0d]--+-00.0-[07]--
+ | +-08.0-[08]--
+ | +-09.0-[09]--
+ | +-0a.0-[0a]----00.0 Intel Corporation Ethernet Controller I226-V [8086:125c]
+ | +-0b.0-[0b]----00.0 MEDIATEK Corp. MT7925 802.11be 160MHz 2x2 PCIe Wireless Network Adapter [Filogic 360] [14c3:7925]
+ | +-0c.0-[0c]----00.0 Advanced Micro Devices, Inc. [AMD] 800 Series Chipset USB 3.x XHCI Controller [1022:43fc]
+ | \-0d.0-[0d]----00.0 Advanced Micro Devices, Inc. [AMD] 600 Series Chipset SATA Controller [1022:43f6]
+ +-02.2-[0e]----00.0 Phison Electronics Corporation E12 NVMe Controller [1987:5012]
+ +-03.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
+ +-04.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
+ +-08.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
+ +-08.1-[0f]--+-00.0 Advanced Micro Devices, Inc. [AMD/ATI] Granite Ridge [Radeon Graphics] [1002:13c0]
+ | +-00.1 Advanced Micro Devices, Inc. [AMD/ATI] Radeon High Definition Audio Controller [1002:1640]
+ | +-00.2 Advanced Micro Devices, Inc. [AMD] Family 19h PSP/CCP [1022:1649]
+ | +-00.3 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b6]
+ | \-00.4 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b7]
+ +-08.3-[10]----00.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 2.0 xHCI [1022:15b8]
+ +-14.0 Advanced Micro Devices, Inc. [AMD] FCH SMBus Controller [1022:790b]
+ +-14.3 Advanced Micro Devices, Inc. [AMD] FCH LPC Bridge [1022:790e]
+ +-18.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 0 [1022:14e0]
+ +-18.1 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 1 [1022:14e1]
+ +-18.2 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 2 [1022:14e2]
+ +-18.3 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 3 [1022:14e3]
+ +-18.4 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 4 [1022:14e4]
+ +-18.5 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 5 [1022:14e5]
+ +-18.6 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 6 [1022:14e6]
+ \-18.7 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 7 [1022:14e7]
 &lt;/code&gt;&lt;/pre&gt;&lt;pre tabindex="0"&gt;&lt;code&gt;00:00.0 Host bridge [0600]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Root Complex [1022:14d8]
 00:00.2 IOMMU [0806]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge IOMMU [1022:14d9]
 00:01.0 Host bridge [0600]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
@@ -899,28 +1773,28 @@ Internal 的部分用于连接 CPU 内的非核心功能，比如 USB 控制器�
 用于从 RC 中引出根端口。而 &lt;code&gt;id&lt;/code&gt;，顾名思义，就是为该设备起个别名以便于引用；&lt;code&gt;bus&lt;/code&gt; 则是指该设备要连接到哪个总线上。&lt;/p&gt;
 &lt;p&gt;至于 &lt;code&gt;chassis&lt;/code&gt; 和 &lt;code&gt;slot&lt;/code&gt;，非常奇怪，我几乎找不到说明这些参数的文档。&lt;/p&gt;
 &lt;p&gt;QEMU 的&lt;a class="link" href="https://github.com/qemu/qemu/blob/master/docs/pcie.txt" target="_blank" rel="noopener"
-&gt;文档&lt;/a&gt;中也只是提到了确保每个设备的 (chassis, slot) 组合不同即可。
+ &gt;文档&lt;/a&gt;中也只是提到了确保每个设备的 (chassis, slot) 组合不同即可。
 LLM 认为 &lt;code&gt;chassis&lt;/code&gt; 对应的是实际的机箱，&lt;code&gt;slot&lt;/code&gt; 对应的就是每个机箱中实际的 PCIe 物理插槽。实测发现默认情况下 &lt;code&gt;chassis&lt;/code&gt;
 可以不用设置，只要通过不同的 &lt;code&gt;slot&lt;/code&gt; 区分就行。&lt;/p&gt;
 &lt;p&gt;最后有了 Root Port 后只需在前两个要连接多个下游设备的端口上放上两个交换机即可。&lt;/p&gt;
 &lt;p&gt;至于为什么不直接将所有设备作为 RCiEP 连接到根总线？&lt;br&gt;
 根据&lt;a class="link" href="https://forum.level1techs.com/t/increasing-vfio-vga-performance/133443" target="_blank" rel="noopener"
-&gt;这篇帖子&lt;/a&gt;，
+ &gt;这篇帖子&lt;/a&gt;，
 这样做似乎会有导致 Windows 将设备识别为 PCI 设备的风险。&lt;/p&gt;
 &lt;p&gt;所有设备配置好后在虚拟机内应该可以获得如下的 PCIe 拓扑：&lt;/p&gt;
 &lt;pre tabindex="0"&gt;&lt;code&gt;-[0000:00]-+-00.0 Intel Corporation 82G33/G31/P35/P31 Express DRAM Controller [8086:29c0]
-+-01.0-[01-05]----00.0-[02-05]--+-00.0-[03]----00.0 Red Hat, Inc. Virtio 1.0 network device [1af4:1041]
-| +-01.0-[04]----00.0 Red Hat, Inc. Virtio 1.0 block device [1af4:1042]
-| \-02.0-[05]----00.0 Red Hat, Inc. Virtio 1.0 block device [1af4:1042]
-+-02.0-[06-09]----00.0-[07-09]--+-00.0-[08]----00.0 Advanced Micro Devices, Inc. [AMD] 800 Series Chipset USB 3.x XHCI Controller [1022:43fc]
-| \-01.0-[09]----00.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b6]
-+-03.0-[0a]--+-00.0 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XT/7900 XTX/7900 GRE/7900M] [1002:744c]
-| +-00.1 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 HDMI/DP Audio [1002:ab30]
-| +-00.2 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 USB [1002:7446]
-| \-00.3 Advanced Micro Devices, Inc. [AMD/ATI] Device [1002:7444]
-+-1f.0 Intel Corporation 82801IB (ICH9) LPC Interface Controller [8086:2918]
-+-1f.2 Intel Corporation 82801IR/IO/IH (ICH9R/DO/DH) 6 port SATA Controller [AHCI mode] [8086:2922]
-\-1f.3 Intel Corporation 82801I (ICH9 Family) SMBus Controller [8086:2930]
+ +-01.0-[01-05]----00.0-[02-05]--+-00.0-[03]----00.0 Red Hat, Inc. Virtio 1.0 network device [1af4:1041]
+ | +-01.0-[04]----00.0 Red Hat, Inc. Virtio 1.0 block device [1af4:1042]
+ | \-02.0-[05]----00.0 Red Hat, Inc. Virtio 1.0 block device [1af4:1042]
+ +-02.0-[06-09]----00.0-[07-09]--+-00.0-[08]----00.0 Advanced Micro Devices, Inc. [AMD] 800 Series Chipset USB 3.x XHCI Controller [1022:43fc]
+ | \-01.0-[09]----00.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b6]
+ +-03.0-[0a]--+-00.0 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XT/7900 XTX/7900 GRE/7900M] [1002:744c]
+ | +-00.1 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 HDMI/DP Audio [1002:ab30]
+ | +-00.2 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 USB [1002:7446]
+ | \-00.3 Advanced Micro Devices, Inc. [AMD/ATI] Device [1002:7444]
+ +-1f.0 Intel Corporation 82801IB (ICH9) LPC Interface Controller [8086:2918]
+ +-1f.2 Intel Corporation 82801IR/IO/IH (ICH9R/DO/DH) 6 port SATA Controller [AHCI mode] [8086:2922]
+ \-1f.3 Intel Corporation 82801I (ICH9 Family) SMBus Controller [8086:2930]
 &lt;/code&gt;&lt;/pre&gt;&lt;h2 id="网络配置"&gt;&lt;a href="#%e7%bd%91%e7%bb%9c%e9%85%8d%e7%bd%ae" class="header-anchor"&gt;&lt;/a&gt;网络配置
 &lt;/h2&gt;&lt;p&gt;对于没有什么特殊需求的情况，选择 NAT 即可。&lt;del&gt;其实是辣鸡消费级无线网卡不支持桥接&lt;/del&gt;&lt;/p&gt;
 &lt;h3 id="配置-networkmanager"&gt;&lt;a href="#%e9%85%8d%e7%bd%ae-networkmanager" class="header-anchor"&gt;&lt;/a&gt;配置 Networkmanager
@@ -941,10 +1815,10 @@ LLM 认为 &lt;code&gt;chassis&lt;/code&gt; 对应的是实际的机箱，&lt;co
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;注意改完之后其 &lt;code&gt;ipv6.method&lt;/code&gt; 还要保持为 &lt;code&gt;shared&lt;/code&gt;。&lt;/p&gt;
 &lt;p&gt;然后修改 &lt;code&gt;/etc/nftables.conf&lt;/code&gt; 加入 IPv6 的 NAT 规则：&lt;/p&gt;
 &lt;pre tabindex="0"&gt;&lt;code&gt;table ip6 nat {
-chain postrouting {
-type nat hook postrouting priority srcnat; policy accept;
-oifname != &amp;#34;lo&amp;#34; masquerade
-}
+ chain postrouting {
+ type nat hook postrouting priority srcnat; policy accept;
+ oifname != &amp;#34;lo&amp;#34; masquerade
+ }
 }
 &lt;/code&gt;&lt;/pre&gt;&lt;p&gt;如果原来的文件中包含一些防火墙之类的默认配置，请根据需求决定是否保留。&lt;/p&gt;
 &lt;p&gt;更改完后启用或者重启 &lt;code&gt;nftable.service&lt;/code&gt; 即可：&lt;/p&gt;
@@ -1021,22 +1895,22 @@ oifname != &amp;#34;lo&amp;#34; masquerade
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;输出应该类似于：&lt;/p&gt;
 &lt;pre tabindex="0"&gt;&lt;code&gt;...
 IOMMU Group 15:
-03:00.0 VGA compatible controller [0300]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XT/7900 XTX/7900 GRE/7900M] [1002:744c] (rev cc)
+ 03:00.0 VGA compatible controller [0300]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XT/7900 XTX/7900 GRE/7900M] [1002:744c] (rev cc)
 IOMMU Group 16:
-03:00.1 Audio device [0403]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 HDMI/DP Audio [1002:ab30]
+ 03:00.1 Audio device [0403]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 HDMI/DP Audio [1002:ab30]
 IOMMU Group 17:
-03:00.2 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 USB [1002:7446]
+ 03:00.2 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 USB [1002:7446]
 IOMMU Group 18:
-03:00.3 Serial bus controller [0c80]: Advanced Micro Devices, Inc. [AMD/ATI] Device [1002:7444]
+ 03:00.3 Serial bus controller [0c80]: Advanced Micro Devices, Inc. [AMD/ATI] Device [1002:7444]
 ...
 IOMMU Group 31:
-0f:00.2 Encryption controller [1080]: Advanced Micro Devices, Inc. [AMD] Family 19h PSP/CCP [1022:1649]
+ 0f:00.2 Encryption controller [1080]: Advanced Micro Devices, Inc. [AMD] Family 19h PSP/CCP [1022:1649]
 IOMMU Group 32:
-0f:00.3 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b6]
+ 0f:00.3 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b6]
 IOMMU Group 33:
-0f:00.4 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b7]
+ 0f:00.4 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b7]
 IOMMU Group 34:
-10:00.0 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 2.0 xHCI [1022:15b8]
+ 10:00.0 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 2.0 xHCI [1022:15b8]
 &lt;/code&gt;&lt;/pre&gt;&lt;p&gt;应该能够看到每一个 PCI 设备都被划分到了某个 Group 中。在直通时，每一个 IOMMU Group 是最小单位。
 也就是直通组内的任何一个设备都必须一起直通组内的的其余设备。&lt;/p&gt;
 &lt;p&gt;在我的系统上，每个 USB Controller 都在一个单独的 IOMMU Group 中，因此&lt;strong&gt;单从这个方面看&lt;/strong&gt;，我的每个 controller 可以单独直通。&lt;/p&gt;
@@ -1058,8 +1932,10 @@ IOMMU Group 34:
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;done&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;pre tabindex="0"&gt;&lt;code&gt;Bus 1 --&amp;gt; 0000:03:00.2 (IOMMU group 17)
 Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
+
 Bus 2 --&amp;gt; 0000:03:00.2 (IOMMU group 17)
 Bus 002 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub
+
 Bus 3 --&amp;gt; 0000:0c:00.0 (IOMMU group 26)
 Bus 003 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
 Bus 003 Device 002: ID 0b05:19d0 ASUSTek Computer, Inc. ROG STRIX SCOPE NX TKL MOONLIGHT WHITE
@@ -1067,30 +1943,42 @@ Bus 003 Device 003: ID 0b05:1be1 ASUSTek Computer, Inc. USB Audio
 Bus 003 Device 004: ID 0b05:19af ASUSTek Computer, Inc. AURA LED Controller
 Bus 003 Device 005: ID 373b:1085 VXE VXE Mouse 1K Dongle
 Bus 003 Device 006: ID 13d3:3602 IMC Networks Wireless_Device
+
 Bus 4 --&amp;gt; 0000:0c:00.0 (IOMMU group 26)
 Bus 004 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub
+
 Bus 5 --&amp;gt; 0000:0f:00.3 (IOMMU group 32)
 Bus 005 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
+
 Bus 6 --&amp;gt; 0000:0f:00.3 (IOMMU group 32)
 Bus 006 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub
+
 Bus 7 --&amp;gt; 0000:0f:00.4 (IOMMU group 33)
 Bus 007 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
 Bus 007 Device 002: ID 05e3:0610 Genesys Logic, Inc. Hub
 Bus 007 Device 003: ID 2bdf:028a SN0002 HIK 2K Camera
+
 Bus 8 --&amp;gt; 0000:0f:00.4 (IOMMU group 33)
 Bus 008 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub
 Bus 008 Device 002: ID 05e3:0620 Genesys Logic, Inc. GL3523 Hub
+
 Bus 9 --&amp;gt; 0000:10:00.0 (IOMMU group 34)
 Bus 009 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
 &lt;/code&gt;&lt;/pre&gt;&lt;p&gt;通过以上步骤我们拿到的是 USB 控制器到 USB Bus 的映射。那怎么拿到对物理接口的映射？&lt;/p&gt;
 &lt;p&gt;拿一个 USB 设备把你电脑上的所有 USB 口插一遍即可 😯。如果看到某个 USB 设备和某个控制器一起出现，
 那么该接口就是属于这个 Controller 控制的。&lt;/p&gt;
 &lt;h3 id="确定直通的控制器"&gt;&lt;a href="#%e7%a1%ae%e5%ae%9a%e7%9b%b4%e9%80%9a%e7%9a%84%e6%8e%a7%e5%88%b6%e5%99%a8" class="header-anchor"&gt;&lt;/a&gt;确定直通的控制器
-&lt;/h3&gt;&lt;blockquote&gt;
-&lt;p&gt;&lt;strong&gt;警告 ⚠️：接下来的操作可能会导致电脑 Freeze/Kernel Panic，请提前保存好数据。&lt;/strong&gt;&lt;/p&gt;
-&lt;/blockquote&gt;
+&lt;/h3&gt;&lt;blockquote class="alert alert-warning"&gt;
+ &lt;div class="alert-header"&gt;
+ &lt;span class="alert-icon"&gt;⚠️&lt;/span&gt;
+ &lt;span class="alert-title"&gt;警告&lt;/span&gt;
+ &lt;/div&gt;
+ &lt;div class="alert-body"&gt;
+ &lt;p&gt;接下来的操作可能会导致电脑 Freeze/Kernel Panic，请提前保存好数据。&lt;/p&gt;
+ &lt;/div&gt;
+ &lt;/blockquote&gt;
 &lt;p&gt;既然现在拿到 Controller 和物理接口的对应关系，是不是就可以随心所欲分配了呢？&lt;/p&gt;
-&lt;p&gt;Humm&amp;hellip; 没这么简单。&lt;/p&gt;
+&lt;p&gt;Humm... 没这么简单。&lt;/p&gt;
 &lt;p&gt;由于一些神秘原因，如果将宿主机上的某些 USB Controller 绑定到 vfio-pci 驱动并交给客户机使用时会导致整台电脑直接
 Freeze（至少在我这里是这样）。因此必须先测试出有哪些控制器/控制器组合是不能直通的。&lt;/p&gt;
 &lt;p&gt;先看看如何将一个 USB 控制器分配给客户机：&lt;/p&gt;
@@ -1117,16 +2005,18 @@ Freeze（至少在我这里是这样）。因此必须先测试出有哪些控�
 &lt;li&gt;
 &lt;p&gt;带有 ACS 补丁的内核可以违反 IOMMU Group 作为最小直通单元的限制，
 但有&lt;a class="link" href="https://vfio.blogspot.com/2014/08/iommu-groups-inside-and-out.html" target="_blank" rel="noopener"
-&gt;潜在风险&lt;/a&gt;。linux-zen 内核包含了此补丁。&lt;/p&gt;
+ &gt;潜在风险&lt;/a&gt;。linux-zen 内核包含了此补丁。&lt;/p&gt;
 &lt;/li&gt;
 &lt;li&gt;
 &lt;p&gt;如果你的平台不支持中断重映射，可以在模块参数中添加 &lt;code&gt;allow_unsafe_interrupts&lt;/code&gt;：&lt;/p&gt;
 &lt;pre tabindex="0"&gt;&lt;code class="language-conf" data-lang="conf"&gt;# /etc/modprobe.d/vfio.conf
 options vfio_iommu_type1 allow_unsafe_interrupts=1
 &lt;/code&gt;&lt;/pre&gt;&lt;p&gt;有的指南说需要在 BIOS 中启用 X2APIC，但我实际测试后发现会导致问题。使用默认设置时出现的是如下启动日志：&lt;/p&gt;
-&lt;blockquote&gt;
-&lt;p&gt;12月 30 11:07:19 archlinux kernel: AMD-Vi: Virtual APIC enabled&lt;/p&gt;
-&lt;/blockquote&gt;
+
+ &lt;blockquote&gt;
+ &lt;p&gt;12月 30 11:07:19 archlinux kernel: AMD-Vi: Virtual APIC enabled&lt;/p&gt;
+
+ &lt;/blockquote&gt;
 &lt;p&gt;也能够正常使用 🤖。&lt;/p&gt;
 &lt;/li&gt;
 &lt;li&gt;
@@ -1135,17 +2025,21 @@ options vfio_iommu_type1 allow_unsafe_interrupts=1
 &lt;/li&gt;
 &lt;li&gt;
 &lt;p&gt;一般来说看着比较反常的控制器直通后挂掉的概率更大，比如控制器：&lt;/p&gt;
-&lt;pre tabindex="0"&gt;&lt;code&gt;10:00.0 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 2.0 xHCI [1022:15b8]
-&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;只管了一个 USB Bus9，一看还是 USB 2.0，对应到主板上的物理接口是一个用于无 CPU 更新 BIOS 的接口。
+
+ &lt;blockquote&gt;
+ &lt;p&gt;10:00.0 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 2.0 xHCI [1022:15b8]&lt;/p&gt;
+
+ &lt;/blockquote&gt;
+&lt;p&gt;只管了一个 USB Bus9，一看还是 USB 2.0，对应到主板上的物理接口是一个用于无 CPU 更新 BIOS 的接口。
 直通时只要带了这个控制器就会直接死掉。&lt;/p&gt;
 &lt;/li&gt;
 &lt;li&gt;
 &lt;p&gt;一点题外话：&lt;br&gt;
-我这块主板使用的是辣鸡联发科 MT7925 的 wireless &lt;del&gt;为啥你这“高端”主板还用这种B东西&lt;/del&gt;，它的网卡部分甚至和蓝牙是分开的。
-网卡部分走的是 PCIe，问题不大，蓝牙则是通过 USB 连接的（上面的 &amp;ldquo;IMC Networks Wireless_Device&amp;rdquo;）。前段时间装完机后这个蓝牙
+我这块主板使用的是辣鸡联发科 MT7925 的 wireless &lt;del&gt;为啥你这 “高端” 主板还用这种B东西&lt;/del&gt;，它的网卡部分甚至和蓝牙是分开的。
+网卡部分走的是 PCIe，问题不大，蓝牙则是通过 USB 连接的（上面的 &amp;quot;IMC Networks Wireless_Device&amp;quot;）。前段时间装完机后这个蓝牙
 折腾大半天死活搞不定，启动时一看日志全是 USB 的各种 IO Error，开机都要花个3分钟。&lt;/p&gt;
 &lt;p&gt;直到在 Reddit 上发现这一篇神人&lt;a class="link" href="https://www.reddit.com/r/archlinux/comments/zweejv/comment/lwlq8b5" target="_blank" rel="noopener"
-&gt;帖子&lt;/a&gt;。&lt;/p&gt;
+ &gt;帖子&lt;/a&gt;。&lt;/p&gt;
 &lt;p&gt;简单来说就是联发科的 💩 蓝牙模块在固件更新完之后内部状态直接 corrupted 了，必须完全将电脑断电才能重置状态。&lt;/p&gt;
 &lt;p&gt;所以最后直接断电再重启就解决了 😇。&lt;/p&gt;
 &lt;/li&gt;
@@ -1154,9 +2048,15 @@ options vfio_iommu_type1 allow_unsafe_interrupts=1
 &lt;/h2&gt;&lt;p&gt;哈，终于到了最令人享受的一步了 🥵。&lt;/p&gt;
 &lt;p&gt;如果你不是 RX 7000 系的 GPU，那建议先看看对于其他一般 GPU 的直通指南，因为接下来的部分有几步会和一般步骤完全相反 🙃。&lt;/p&gt;
 &lt;h3 id="隔离-gpu"&gt;&lt;a href="#%e9%9a%94%e7%a6%bb-gpu" class="header-anchor"&gt;&lt;/a&gt;隔离 GPU
-&lt;/h3&gt;&lt;blockquote&gt;
-&lt;p&gt;&lt;strong&gt;注意 ⚠️：显卡隔离成功后宿主机不会再通过此显卡输出画面，请确保有第二张显卡或者 SSH 连接。&lt;/strong&gt;&lt;/p&gt;
-&lt;/blockquote&gt;
+&lt;/h3&gt;&lt;blockquote class="alert alert-important"&gt;
+ &lt;div class="alert-header"&gt;
+ &lt;span class="alert-icon"&gt;📌&lt;/span&gt;
+ &lt;span class="alert-title"&gt;重要&lt;/span&gt;
+ &lt;/div&gt;
+ &lt;div class="alert-body"&gt;
+ &lt;p&gt;显卡隔离成功后宿主机不会再通过此显卡输出画面，请确保有第二张显卡或者 SSH 连接。&lt;/p&gt;
+ &lt;/div&gt;
+ &lt;/blockquote&gt;
 &lt;p&gt;这一步的目的是让 vfio-pci 驱动在相应的设备驱动初始化设备之前绑定到设备上，使设备保持一个相对「干净」的状态。&lt;/p&gt;
 &lt;p&gt;这里使用在系统启动阶段提前加载 VFIO 驱动的方式抢占设备，创建文件&lt;code&gt;/etc/modprobe.d/vfio.conf&lt;/code&gt;：&lt;/p&gt;
 &lt;pre tabindex="0"&gt;&lt;code&gt;softdep drm pre: vfio-pci
@@ -1199,9 +2099,11 @@ reset bug，因此在内核驱动初始化设备之前抢占应该是最保险�
 &lt;p&gt;然后使用以下命令检查 &lt;code&gt;memlock&lt;/code&gt; 是否有限制：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nb"&gt;ulimit&lt;/span&gt; -Hl
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;如果结果不是 &lt;code&gt;unlimited&lt;/code&gt;，会遇到错误：&lt;/p&gt;
-&lt;blockquote&gt;
-&lt;p&gt;failed to setup container for group 20: memory listener initialization failed: Region mem: vfio_container_dma_map&lt;/p&gt;
-&lt;/blockquote&gt;
+
+ &lt;blockquote&gt;
+ &lt;p&gt;failed to setup container for group 20: memory listener initialization failed: Region mem: vfio_container_dma_map&lt;/p&gt;
+
+ &lt;/blockquote&gt;
 &lt;p&gt;那么还需要修改以下文件来解除运行虚拟机的用户 &lt;code&gt;memlock&lt;/code&gt; 的限制：&lt;/p&gt;
 &lt;pre tabindex="0"&gt;&lt;code class="language-conf" data-lang="conf"&gt;# /etc/security/limits.conf
 windows - memlock unlimited
@@ -1220,9 +2122,10 @@ windows - memlock unlimited
 &lt;/code&gt;&lt;/pre&gt;&lt;p&gt;欸，这俩文件竟然不一样？既然下面那个能识别出文件类型，那 VBIOS 就一定是它吧 🤓。&lt;/p&gt;
 &lt;p&gt;那就把这个文件传给上面的 ArchLinux 客户机看看：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;-device vfio-pci,host&lt;span class="o"&gt;=&lt;/span&gt;03:00.0,bus&lt;span class="o"&gt;=&lt;/span&gt;rp2,addr&lt;span class="o"&gt;=&lt;/span&gt;00.0,multifunction&lt;span class="o"&gt;=&lt;/span&gt;on,romfile&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s2"&gt;&amp;#34;7900xt.rom&amp;#34;&lt;/span&gt;
-&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Oops&amp;hellip; 爆炸了：&lt;/p&gt;
-&lt;blockquote&gt;
-&lt;p&gt;qemu: warning: vfio_container_dma_map(0x56261b019040, 0x380810214000, 0x4000, 0x7fb876dc8000) = -14 (错误的地址)&lt;br&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Oops... 爆炸了：&lt;/p&gt;
+
+ &lt;blockquote&gt;
+ &lt;p&gt;qemu: warning: vfio_container_dma_map(0x56261b019040, 0x380810214000, 0x4000, 0x7fb876dc8000) = -14 (错误的地址)&lt;br&gt;
 0000:03:00.3: PCI peer-to-peer transactions on BARs are not supported.&lt;br&gt;
 qemu: vfio: Error: Failed to setup MSI fds: 无效的参数&lt;br&gt;
 qemu: vfio: Error: Failed to enable MSI&lt;br&gt;
@@ -1231,7 +2134,7 @@ RAX=ffffffff92ffa5a0 RBX=ffff8e9985802000 RCX=0000000000000000 RDX=ffffd0c381c97
 RSI=ffffd0c3807a4034 RDI=ffff8e998581a828 RBP=0000000000000034 RSP=ffffd0c381c97660&lt;br&gt;
 R8 =0000000000000002 R9 =0000000000000000 R10=0000000000000040 R11=0000000000000001&lt;br&gt;
 R12=ffffd0c381c976b0 R13=ffff8e998581a828 R14=0000000000000000 R15=0000000000000000&lt;br&gt;
-RIP=ffffffff92ffa5af RFL=00000282 [&amp;ndash;S&amp;mdash;-] CPL=0 II=0 A20=1 SMM=0 HLT=0&lt;br&gt;
+RIP=ffffffff92ffa5af RFL=00000282 [--S----] CPL=0 II=0 A20=1 SMM=0 HLT=0&lt;br&gt;
 ES =0000 0000000000000000 00000000 00000000&lt;br&gt;
 CS =0010 0000000000000000 ffffffff 00a09b00 DPL=0 CS64 [-RA]&lt;br&gt;
 SS =0018 0000000000000000 ffffffff 00c09300 DPL=0 DS [-WA]&lt;br&gt;
@@ -1247,24 +2150,29 @@ DR0=0000000000000000 DR1=0000000000000000 DR2=0000000000000000 DR3=0000000000000
 DR6=00000000ffff0ff0 DR7=0000000000000400&lt;br&gt;
 EFER=0000000000200d01&lt;br&gt;
 Code=90 90 90 90 90 f3 0f 1e fa 0f 1f 44 00 00 89 f6 48 03 77 18 &amp;lt;8b&amp;gt; 06 89 02 31 c0 c3 cc cc cc cc 66 0f 1f 44 00 00 90 90 90 90 90 90 90 90 90 90 90 90 90&lt;/p&gt;
-&lt;/blockquote&gt;
+
+ &lt;/blockquote&gt;
 &lt;p&gt;那重启一下再看看？&lt;/p&gt;
-&lt;blockquote&gt;
-&lt;p&gt;qemu-system-x86_64: ../qemu-10.1.2/hw/pci/pci.c:1815: pci_irq_handler: Assertion `0 &amp;lt;= irq_num &amp;amp;&amp;amp; irq_num &amp;lt; PCI_NUM_PINS&amp;rsquo; failed.&lt;/p&gt;
-&lt;/blockquote&gt;
-&lt;p&gt;&amp;hellip;&amp;hellip; 好的，恭喜你，现在显卡的状态已经彻底 corrupted 了 🫨，只能重启宿主机。&lt;del&gt;联发科打过来了？&lt;/del&gt;&lt;/p&gt;
+
+ &lt;blockquote&gt;
+ &lt;p&gt;qemu-system-x86_64: ../qemu-10.1.2/hw/pci/pci.c:1815: pci_irq_handler: Assertion `0 &amp;lt;= irq_num &amp;amp;&amp;amp; irq_num &amp;lt; PCI_NUM_PINS' failed.&lt;/p&gt;
+
+ &lt;/blockquote&gt;
+&lt;p&gt;...... 好的，恭喜你，现在显卡的状态已经彻底 corrupted 了 🫨，只能重启宿主机。&lt;del&gt;联发科打过来了？&lt;/del&gt;&lt;/p&gt;
 &lt;p&gt;再试试从 TechPowerUp 下载的 VBIOS 呢？&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;-device vfio-pci,host&lt;span class="o"&gt;=&lt;/span&gt;03:00.0,bus&lt;span class="o"&gt;=&lt;/span&gt;rp2,addr&lt;span class="o"&gt;=&lt;/span&gt;00.0,multifunction&lt;span class="o"&gt;=&lt;/span&gt;on,romfile&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s2"&gt;&amp;#34;252664.rom&amp;#34;&lt;/span&gt;
-&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Hummm&amp;hellip; 看起来正常启动了，Linux 也能够认到显卡，甚至 Hyprland 都能够正常启动并输出。&lt;br&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Hummm... 看起来正常启动了，Linux 也能够认到显卡，甚至 Hyprland 都能够正常启动并输出。&lt;br&gt;
 万事大吉了吗？Linux 提取的固件有问题？&lt;br&gt;
 仔细看一下启动日志可以发现：&lt;/p&gt;
-&lt;blockquote&gt;
-&lt;p&gt;Dec 28 05:23:21 archlinux kernel: amdgpu 0000:00:04.0: Invalid PCI ROM header signature: expecting 0xaa55, got 0x0000&lt;/p&gt;
-&lt;/blockquote&gt;
+
+ &lt;blockquote&gt;
+ &lt;p&gt;Dec 28 05:23:21 archlinux kernel: amdgpu 0000:00:04.0: Invalid PCI ROM header signature: expecting 0xaa55, got 0x0000&lt;/p&gt;
+
+ &lt;/blockquote&gt;
 &lt;p&gt;WTF？我们的 VBIOS 由于格式不正确压根就没有被加载！&lt;/p&gt;
-&lt;p&gt;🤔&amp;hellip; 那这究竟是怎么回事呢？&lt;br&gt;
+&lt;p&gt;🤔... 那这究竟是怎么回事呢？&lt;br&gt;
 以下是我的个人理解，原文在&lt;a class="link" href="https://forum.level1techs.com/t/the-state-of-amd-rx-7000-series-vfio-passthrough-april-2024/210242" target="_blank" rel="noopener"
-&gt;这里&lt;/a&gt;。&lt;/p&gt;
+ &gt;这里&lt;/a&gt;。&lt;/p&gt;
 &lt;p&gt;由于显卡在启动时已经被宿主机的 UEFI 初始化了一次，如果再在虚拟机中被 UEFI 初始化一次会损坏其内部状态，导致显卡无法正常使用
 （但我更改了启动显卡似乎也没法解决）。因此防止显卡被 UEFI 再次初始化的方式就是提供一个错误的 VBIOS 或者关闭 ROM BAR。&lt;/p&gt;
 &lt;p&gt;还记得在 ArchWiki 页面说一般 Nvidia 的 VBIOS 提取出来后需要去除文件头直至 &lt;code&gt;0xaa55&lt;/code&gt; 为文件开头吗？
@@ -1286,15 +2194,17 @@ Code=90 90 90 90 90 f3 0f 1e fa 0f 1f 44 00 00 89 f6 48 03 77 18 &amp;lt;8b&amp;
 &lt;/ul&gt;
 &lt;p&gt;除了其余正常工作的情况外，剩下的表现就是 Linux 启动时会出现大量 &lt;code&gt;DMCUB Error&lt;/code&gt; 且没有显示信号输出。&lt;/p&gt;
 &lt;p&gt;在没有启用 multifunction 时，虚拟机的 journal 中会出现以下信息：&lt;/p&gt;
-&lt;blockquote&gt;
-&lt;p&gt;Dec 28 06:53:25 archlinux kernel: amdgpu 0000:00:05.0: amdgpu: System can&amp;rsquo;t access extended configuration space, please check!!&lt;/p&gt;
-&lt;/blockquote&gt;
+
+ &lt;blockquote&gt;
+ &lt;p&gt;Dec 28 06:53:25 archlinux kernel: amdgpu 0000:00:05.0: amdgpu: System can't access extended configuration space, please check!!&lt;/p&gt;
+
+ &lt;/blockquote&gt;
 &lt;p&gt;因此我的&lt;del&gt;瞎猜&lt;/del&gt;推测是：在没有启用 multifunction 时，显卡直接连接到了根总线上，导致被认为这是一个 RCiEP 的 PCI 设备，
 从而依赖传入的 VBIOS 对显卡进行重新初始化，然后就寄了。&lt;/p&gt;
 &lt;/li&gt;
 &lt;li&gt;
 &lt;p&gt;如果显卡遇到了 Reset Bug，可以看看项目 &lt;a class="link" href="https://github.com/gnif/vendor-reset" target="_blank" rel="noopener"
-&gt;vendor-reset&lt;/a&gt; 中是否有自己的显卡。&lt;/p&gt;
+ &gt;vendor-reset&lt;/a&gt; 中是否有自己的显卡。&lt;/p&gt;
 &lt;/li&gt;
 &lt;li&gt;
 &lt;p&gt;不少网上的指南都有说要在宿主机的 BIOS 中关闭 Resizable BAR，但在我这套平台下开启也可以正常运行，如遇问题可以关闭。&lt;/p&gt;
@@ -1316,20 +2226,20 @@ Code=90 90 90 90 90 f3 0f 1e fa 0f 1f 44 00 00 89 f6 48 03 77 18 &amp;lt;8b&amp;
 &lt;/h3&gt;&lt;p&gt;KEK (Key Exchange Key)&lt;/p&gt;
 &lt;ul&gt;
 &lt;li&gt;&lt;a class="link" href="https://go.microsoft.com/fwlink/p/?linkid=321185" target="_blank" rel="noopener"
-&gt;Microsoft Corporation KEK CA 2011&lt;/a&gt;&lt;/li&gt;
+ &gt;Microsoft Corporation KEK CA 2011&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://go.microsoft.com/fwlink/p/?linkid=2239775" target="_blank" rel="noopener"
-&gt;Microsoft Corporation KEK 2K CA 2023&lt;/a&gt;&lt;/li&gt;
+ &gt;Microsoft Corporation KEK 2K CA 2023&lt;/a&gt;&lt;/li&gt;
 &lt;/ul&gt;
 &lt;p&gt;DB (Allowed Signature database)&lt;/p&gt;
 &lt;ul&gt;
 &lt;li&gt;&lt;a class="link" href="https://go.microsoft.com/fwlink/?LinkID=321192" target="_blank" rel="noopener"
-&gt;Microsoft Windows Production CA 2011&lt;/a&gt;&lt;/li&gt;
+ &gt;Microsoft Windows Production CA 2011&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://go.microsoft.com/fwlink/?LinkID=321194" target="_blank" rel="noopener"
-&gt;Microsoft Corporation UEFI CA 2011&lt;/a&gt;&lt;/li&gt;
+ &gt;Microsoft Corporation UEFI CA 2011&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://go.microsoft.com/fwlink/?LinkID=2239776" target="_blank" rel="noopener"
-&gt;Windows UEFI CA 2023&lt;/a&gt;&lt;/li&gt;
+ &gt;Windows UEFI CA 2023&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://go.microsoft.com/fwlink/?LinkID=2284009" target="_blank" rel="noopener"
-&gt;Microsoft Option ROM UEFI CA 2023&lt;/a&gt;&lt;/li&gt;
+ &gt;Microsoft Option ROM UEFI CA 2023&lt;/a&gt;&lt;/li&gt;
 &lt;/ul&gt;
 &lt;h3 id="注册证书并启用安全启动"&gt;&lt;a href="#%e6%b3%a8%e5%86%8c%e8%af%81%e4%b9%a6%e5%b9%b6%e5%90%af%e7%94%a8%e5%ae%89%e5%85%a8%e5%90%af%e5%8a%a8" class="header-anchor"&gt;&lt;/a&gt;注册证书并启用安全启动
 &lt;/h3&gt;&lt;p&gt;现在你应该有下面这些文件：&lt;/p&gt;
@@ -1367,9 +2277,9 @@ MicCorUEFCA2011_2011-06-27.crt &amp;#39;microsoft option rom uefi ca 2023.crt&am
 │   └── tpm2-00.permall
 ├── qemu.sh
 └── storage
-├── rootfs.qcow2
-├── virtio-win.iso
-└── Windows10-21H2-LTSC-IoT.iso
+ ├── rootfs.qcow2
+ ├── virtio-win.iso
+ └── Windows10-21H2-LTSC-IoT.iso
 &lt;/code&gt;&lt;/pre&gt;&lt;p&gt;其中 &lt;code&gt;tpm2-00.permall&lt;/code&gt; 会由 &lt;code&gt;swtpm&lt;/code&gt; 自动创建。&lt;br&gt;
 新系统需要的基本配置文件以及前面提及的用于 VFIO 直通的各种配置文件不再赘述，下面主要说明新增的文件。&lt;/p&gt;
 &lt;h3 id="udev-rules"&gt;&lt;a href="#udev-rules" class="header-anchor"&gt;&lt;/a&gt;Udev Rules
@@ -1415,8 +2325,16 @@ CONFIG_USB_XHCI_HCD=y
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;[Install]&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="na"&gt;WantedBy&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s"&gt;sysinit.target&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;值得注意的是这个 service 的执行时机应该尽可能早，最好在 udevd 开始之前就执行完成，否则会和 udevd 发生 racing，
-导致 journal 里一堆 error。&lt;br&gt;
-还有就是 systemd 的命令行不支持 shell 的 &lt;code&gt;| &amp;gt; &amp;gt;&amp;gt;&lt;/code&gt; 等运算符，需要像这样使用 &lt;code&gt;sh -c&lt;/code&gt; 的方式实现。&lt;/p&gt;
+导致 journal 里一堆 error。&lt;br&gt;&lt;/p&gt;
+&lt;blockquote class="alert alert-note"&gt;
+ &lt;div class="alert-header"&gt;
+ &lt;span class="alert-icon"&gt;📝&lt;/span&gt;
+ &lt;span class="alert-title"&gt;备注&lt;/span&gt;
+ &lt;/div&gt;
+ &lt;div class="alert-body"&gt;
+ &lt;p&gt;systemd 的命令行不支持 shell 的 &lt;code&gt;| &amp;gt; &amp;gt;&amp;gt;&lt;/code&gt; 等运算符，需要像这样使用 &lt;code&gt;sh -c&lt;/code&gt; 的方式实现。&lt;/p&gt;
+ &lt;/div&gt;
+ &lt;/blockquote&gt;
 &lt;h3 id="swtpmservice"&gt;&lt;a href="#swtpmservice" class="header-anchor"&gt;&lt;/a&gt;swtpm.service
 &lt;/h3&gt;&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-ini" data-lang="ini"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="c1"&gt;# /home/windows/.config/systemd/user/swtpm.service&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;[Unit]&lt;/span&gt;
@@ -1576,59 +2494,38 @@ CONFIG_USB_XHCI_HCD=y
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="c1"&gt;# Run Guest Windows VM&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nb"&gt;exec&lt;/span&gt; qemu-system-x86_64 &lt;span class="s2"&gt;&amp;#34;&lt;/span&gt;&lt;span class="si"&gt;${&lt;/span&gt;&lt;span class="nv"&gt;qemu_args&lt;/span&gt;&lt;span class="p"&gt;[@]&lt;/span&gt;&lt;span class="si"&gt;}&lt;/span&gt;&lt;span class="s2"&gt;&amp;#34;&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h2 id="效果展示"&gt;&lt;a href="#%e6%95%88%e6%9e%9c%e5%b1%95%e7%a4%ba" class="header-anchor"&gt;&lt;/a&gt;效果展示
-&lt;/h2&gt;&lt;p&gt;&lt;img src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/img/result-01.webp"
-width="2560"
-height="1440"
-loading="lazy"
-alt="GPU-Z"
-class="gallery-image"
-data-flex-grow="177"
-data-flex-basis="426px"
-&gt;
+&lt;/h2&gt;&lt;p&gt;&lt;img alt="GPU-Z" class="gallery-image" data-flex-basis="426px" data-flex-grow="177" height="1440" loading="lazy" sizes="(max-width: 767px) calc(100vw - 30px), (max-width: 1023px) 700px, (max-width: 1279px) 950px, 1232px" src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/img/result-01.webp" width="2560"&gt;
 GPU-Z 检测显卡 PCIe 的逻辑非常神秘，开机后第一次启动显示 PCIe 4.0 x16，过了几秒变成 PCIe，关了再开就退化成 PCI 了 😅。
 但 AMD 驱动以及 Windows 的设备管理器显示的都是 4.0 x16，使用 AIDA64 测了一下带宽也有 23 GiB/s。&lt;/p&gt;
-&lt;p&gt;&lt;img src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/img/result-02.webp"
-width="2560"
-height="1440"
-loading="lazy"
-alt="Horizon-01"
-class="gallery-image"
-data-flex-grow="177"
-data-flex-basis="426px"
-&gt;
-&lt;img src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/img/result-03.webp"
-width="2560"
-height="1440"
-loading="lazy"
-alt="Horizon-02"
-class="gallery-image"
-data-flex-grow="177"
-data-flex-basis="426px"
-&gt;&lt;/p&gt;
+&lt;p&gt;&lt;img alt="Horizon-01" class="gallery-image" data-flex-basis="426px" data-flex-grow="177" height="1440" loading="lazy" sizes="(max-width: 767px) calc(100vw - 30px), (max-width: 1023px) 700px, (max-width: 1279px) 950px, 1232px" src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/img/result-02.webp" width="2560"&gt;
+&lt;img alt="Horizon-02" class="gallery-image" data-flex-basis="426px" data-flex-grow="177" height="1440" loading="lazy" sizes="(max-width: 767px) calc(100vw - 30px), (max-width: 1023px) 700px, (max-width: 1279px) 950px, 1232px" src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/img/result-03.webp" width="2560"&gt;&lt;/p&gt;
 &lt;h2 id="reference"&gt;&lt;a href="#reference" class="header-anchor"&gt;&lt;/a&gt;Reference
 &lt;/h2&gt;&lt;ul&gt;
 &lt;li&gt;&lt;a class="link" href="https://pve.sqlsec.com/4/2/#iommu-sr-iov" target="_blank" rel="noopener"
-&gt;硬件直通&lt;/a&gt;&lt;/li&gt;
+ &gt;硬件直通&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://wiki.archlinux.org/title/Systemd/User" target="_blank" rel="noopener"
-&gt;systemd/User&lt;/a&gt;&lt;/li&gt;
+ &gt;systemd/User&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://github.com/qemu/qemu/blob/master/docs/pcie.txt" target="_blank" rel="noopener"
-&gt;QEMU Docs: PCIe&lt;/a&gt;&lt;/li&gt;
+ &gt;QEMU Docs: PCIe&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://undus.net/posts/qemu-kvm-win11-guest" target="_blank" rel="noopener"
-&gt;QEMU/KVM: Windows 11 Guest&lt;/a&gt;&lt;/li&gt;
+ &gt;QEMU/KVM: Windows 11 Guest&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://wiki.archlinux.org/title/PCI_passthrough_via_OVMF" target="_blank" rel="noopener"
-&gt;PCI passthrough via OVMF&lt;/a&gt;&lt;/li&gt;
+ &gt;PCI passthrough via OVMF&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://projectacrn.github.io/latest/tutorials/waag-secure-boot.html" target="_blank" rel="noopener"
-&gt;Enable Secure Boot in Windows&lt;/a&gt;&lt;/li&gt;
+ &gt;Enable Secure Boot in Windows&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/windows-secure-boot-key-creation-and-management-guidance" target="_blank" rel="noopener"
-&gt;Windows Secure Boot Key Creation and Management Guidance&lt;/a&gt;&lt;/li&gt;
+ &gt;Windows Secure Boot Key Creation and Management Guidance&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://bbs.archlinux.org/viewtopic.php?id=288756" target="_blank" rel="noopener"
-&gt;No Output From 7900XTX GPU via OVMF PCI Passthrough&lt;/a&gt;&lt;/li&gt;
+ &gt;No Output From 7900XTX GPU via OVMF PCI Passthrough&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://forum.level1techs.com/t/increasing-vfio-vga-performance/133443" target="_blank" rel="noopener"
-&gt;Increasing VFIO VGA Performance&lt;/a&gt;&lt;/li&gt;
+ &gt;Increasing VFIO VGA Performance&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://forum.proxmox.com/threads/amd-7900-xt-or-xtx-pci-passthrough.121566/post-528609" target="_blank" rel="noopener"
-&gt;AMD 7900 XT or XTX pci passthrough&lt;/a&gt;&lt;/li&gt;
+ &gt;AMD 7900 XT or XTX pci passthrough&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://forum.level1techs.com/t/the-state-of-amd-rx-7000-series-vfio-passthrough-april-2024/210242" target="_blank" rel="noopener"
-&gt;The state of AMD RX 7000 Series VFIO Passthrough&lt;/a&gt;&lt;/li&gt;
+ &gt;The state of AMD RX 7000 Series VFIO Passthrough&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://docs.redhat.com/en/documentation/red_hat_virtualization/4.1/html/installation_guide/appe-configuring_a_hypervisor_host_for_pci_passthrough" target="_blank" rel="noopener"
-&gt;Appendix G. Configuring a Host for PCI Passthrough&lt;/a&gt;&lt;/li&gt;
-&lt;/ul&gt;</description></item></channel></rss>
+ &gt;Appendix G. Configuring a Host for PCI Passthrough&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="cover"&gt;&lt;a href="#cover" class="header-anchor"&gt;&lt;/a&gt;Cover
+&lt;/h2&gt;&lt;p&gt;&lt;a class="link" href="https://wata-tabe.com/special/endcard/" target="_blank" rel="noopener"
+ &gt;第7話／竹嶋えく&lt;/a&gt;&lt;/p&gt;</description></item></channel></rss>

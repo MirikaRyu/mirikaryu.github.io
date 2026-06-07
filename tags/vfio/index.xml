@@ -1,28 +1,28 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>VFIO on Mirika's Blog</title><link>https://mirikaryu.github.io/tags/vfio/</link><description>Recent content in VFIO on Mirika's Blog</description><generator>Hugo -- gohugo.io</generator><language>zh-cn</language><copyright>Mirika</copyright><lastBuildDate>Wed, 31 Dec 2025 18:25:01 +0800</lastBuildDate><atom:link href="https://mirikaryu.github.io/tags/vfio/index.xml" rel="self" type="application/rss+xml"/><item><title>QEMU/VFIO: Windows Guest 折腾记录</title><link>https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/</link><pubDate>Wed, 31 Dec 2025 18:25:01 +0800</pubDate><guid>https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/</guid><description>&lt;img src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/cover.webp" alt="Featured image of post QEMU/VFIO: Windows Guest 折腾记录" /&gt;&lt;h2 id="前言"&gt;&lt;a href="#%e5%89%8d%e8%a8%80" class="header-anchor"&gt;&lt;/a&gt;前言
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>VFIO on Mirika's Blog</title><link>https://mirikaryu.github.io/tags/vfio/</link><description>Recent content in VFIO on Mirika's Blog</description><generator>Hugo -- gohugo.io</generator><language>zh</language><copyright>Mirika</copyright><lastBuildDate>Wed, 31 Dec 2025 18:25:01 +0800</lastBuildDate><atom:link href="https://mirikaryu.github.io/tags/vfio/index.xml" rel="self" type="application/rss+xml"/><item><title>QEMU/VFIO: Windows Guest 折腾记录</title><link>https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/</link><pubDate>Wed, 31 Dec 2025 18:25:01 +0800</pubDate><guid>https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/</guid><description>&lt;img src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/cover.webp" alt="Featured image of post QEMU/VFIO: Windows Guest 折腾记录" /&gt;&lt;h2 id="前言"&gt;&lt;a href="#%e5%89%8d%e8%a8%80" class="header-anchor"&gt;&lt;/a&gt;前言
 &lt;/h2&gt;&lt;p&gt;由于小时候不懂事在沟槽的 Microsoft Store 上买了个 Horizon 4，以及 Linux (Wayland) 上一直缺乏一个好用的 Office 软件，
 一直想搭建一个体验如同真机的 Windows 虚拟机，即开机接管所有外围设备并直接进入 Windows，关机也会将整台电脑一起关闭。&lt;/p&gt;
 &lt;p&gt;你说为什么不 Dual Boot 🧐？&lt;/p&gt;
-&lt;p&gt;Hummm&amp;hellip; 答案是现在应该（大概？）没有人能够将 Windows 直接安装在一个 LVM 的 logic volume 上吧：&lt;/p&gt;
+&lt;p&gt;Hummm... 答案是现在应该（大概？）没有人能够将 Windows 直接安装在一个 LVM 的 logic volume 上吧：&lt;/p&gt;
 &lt;pre tabindex="0"&gt;&lt;code&gt;NAME FSTYPE LABEL SIZE FSAVAIL FSUSE% MOUNTPOINTS
-sda 931.5G
-└─sda1 LVM2_member 931.5G
-├─Data-steamos btrfs 512G
-├─Data-private crypto_LUKS 80G
-├─Data-secrets crypto_LUKS 4G
-├─Data-windows 256G
-└─Data-ventoy btrfs 64G
-nvme1n1 476.9G
-└─nvme1n1p1 LVM2_member 476.9G
-├─Home-archlinux btrfs 208G 77.6G 61% /home
-├─Home-steamos btrfs 64G
-└─Home-windows btrfs 64G
-nvme0n1 232.9G
+sda 931.5G 
+└─sda1 LVM2_member 931.5G 
+ ├─Data-steamos btrfs 512G 
+ ├─Data-private crypto_LUKS 80G 
+ ├─Data-secrets crypto_LUKS 4G 
+ ├─Data-windows 256G 
+ └─Data-ventoy btrfs 64G 
+nvme1n1 476.9G 
+└─nvme1n1p1 LVM2_member 476.9G 
+ ├─Home-archlinux btrfs 208G 77.6G 61% /home
+ ├─Home-steamos btrfs 64G 
+ └─Home-windows btrfs 64G 
+nvme0n1 232.9G 
 ├─nvme0n1p1 vfat EFI 6G 5.8G 3% /efi
-└─nvme0n1p2 LVM2_member 226.9G
-├─Root-swap swap 32G [SWAP]
-├─Root-archlinux btrfs 80G 50.5G 36% /
-├─Root-steamos btrfs 64G
-└─Root-windows btrfs 4G
+└─nvme0n1p2 LVM2_member 226.9G 
+ ├─Root-swap swap 32G [SWAP]
+ ├─Root-archlinux btrfs 80G 50.5G 36% /
+ ├─Root-steamos btrfs 64G 
+ └─Root-windows btrfs 4G 
 &lt;/code&gt;&lt;/pre&gt;&lt;p&gt;&lt;del&gt;三块盘完美符合 Memory Hierarchy&lt;/del&gt;&lt;br&gt;
 在这种磁盘布局下很难在不失灵活性的同时单独安装 Windows。&lt;/p&gt;
 &lt;p&gt;在继续之前先对照一下平台配置：&lt;/p&gt;
@@ -44,8 +44,16 @@ nvme0n1 232.9G
 &lt;li&gt;极难调试，喜欢我虚拟机启动后把你的配置文件给改了吗？&lt;/li&gt;
 &lt;/ul&gt;
 &lt;p&gt;VFIO PCI 设备直通和硬件平台本身的联系非常密切，请一定根据&lt;strong&gt;你的硬件配置&lt;/strong&gt;选择应该采用哪些步骤、如何配置。&lt;/p&gt;
-&lt;p&gt;如果你是按照我接下来的方法配置的 Windows Guest，请&lt;strong&gt;绝对不要&lt;/strong&gt;在 Windows 中开启内核隔离/Hyper-V 等依赖虚拟化的功能，
+&lt;blockquote class="alert alert-warning"&gt;
+ &lt;div class="alert-header"&gt;
+ &lt;span class="alert-icon"&gt;⚠️&lt;/span&gt;
+ &lt;span class="alert-title"&gt;警告&lt;/span&gt;
+ &lt;/div&gt;
+ &lt;div class="alert-body"&gt;
+ &lt;p&gt;如果你是按照我接下来的方法配置的 Windows Guest，请&lt;strong&gt;绝对不要&lt;/strong&gt;在 Windows 中开启内核隔离/Hyper-V 等依赖虚拟化的功能，
 否则重启后可能会卡在启动界面无法进入 Greeter。&lt;del&gt;如果你能在 WinRE 中挂载分区修改注册表那可以试试&lt;/del&gt;&lt;/p&gt;
+ &lt;/div&gt;
+ &lt;/blockquote&gt;
 &lt;p&gt;虽然虚拟机到最后确实是跑在一个 headless 的 ArchLinux 上的，但是在安装 Windows 时由于没有显卡驱动所以可能需要使用 QEMU 的图形后端
 （如 GTK, VNC）来显示 VGA 输出。&lt;/p&gt;
 &lt;p&gt;我这边是在另一个系统的桌面环境上安装配置完成后再迁移到目标系统的，当然在目标系统上安装图形环境后再卸载也是可行的。&lt;/p&gt;
@@ -124,7 +132,7 @@ Windows 的性能。CPU 拓扑和内存如果没有什么性能需求随便分�
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;-chardev socket,id&lt;span class="o"&gt;=&lt;/span&gt;ch0,path&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s2"&gt;&amp;#34;&lt;/span&gt;&lt;span class="nv"&gt;$XDG_RUNTIME_DIR&lt;/span&gt;&lt;span class="s2"&gt;/tpm_sock&amp;#34;&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;-tpmdev emulator,id&lt;span class="o"&gt;=&lt;/span&gt;tpm0,chardev&lt;span class="o"&gt;=&lt;/span&gt;ch0
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;-device tpm-tis,tpmdev&lt;span class="o"&gt;=&lt;/span&gt;tpm0
-&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;前两行指定了 UEFI 固件和存储设置的 NVRAM 文件。如果你希望使用 Secure Boot，那么第一个 UEFI 固件必须选择带 &amp;ldquo;secboot&amp;rdquo; 字样的文件，
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;前两行指定了 UEFI 固件和存储设置的 NVRAM 文件。如果你希望使用 Secure Boot，那么第一个 UEFI 固件必须选择带 &amp;quot;secboot&amp;quot; 字样的文件，
 这个在不同发行版之间的名字差别不大。但对于第二个 NVRAM 模板文件，不同发行版之间的差异较大。如果你是 ArchLinux 用户，
 那么请参阅后面的&lt;a class="link" href="#%e5%ae%89%e5%85%a8%e5%90%af%e5%8a%a8" &gt;安全启动&lt;/a&gt;这一小节；如果你使用 Fedora，那么应该能够找到一个 enroll 了微软证书的 secboot NVRAM 模板，
 直接拷贝后使用即可开启 Secure Boot。&lt;/p&gt;
@@ -149,24 +157,8 @@ Windows 的性能。CPU 拓扑和内存如果没有什么性能需求随便分�
 因此使用这个 Function Number 区分不同的功能。&lt;/li&gt;
 &lt;/ol&gt;
 &lt;p&gt;接下来看一下 PCIe 的拓扑结构：&lt;/p&gt;
-&lt;p&gt;&lt;img src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/img/pcie-01.webp"
-width="2027"
-height="1342"
-loading="lazy"
-alt="PCIe-Topology"
-class="gallery-image"
-data-flex-grow="151"
-data-flex-basis="362px"
-&gt;
-&lt;img src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/img/pcie-02.webp"
-width="2118"
-height="1342"
-loading="lazy"
-alt="PCIe-Switch"
-class="gallery-image"
-data-flex-grow="157"
-data-flex-basis="378px"
-&gt;&lt;/p&gt;
+&lt;p&gt;&lt;img alt="PCIe-Topology" class="gallery-image" data-flex-basis="362px" data-flex-grow="151" height="1342" loading="lazy" sizes="(max-width: 767px) calc(100vw - 30px), (max-width: 1023px) 700px, (max-width: 1279px) 950px, 1232px" src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/img/pcie-01.webp" width="2027"&gt;
+&lt;img alt="PCIe-Switch" class="gallery-image" data-flex-basis="378px" data-flex-grow="157" height="1342" loading="lazy" sizes="(max-width: 767px) calc(100vw - 30px), (max-width: 1023px) 700px, (max-width: 1279px) 950px, 1232px" src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/img/pcie-02.webp" width="2118"&gt;&lt;/p&gt;
 &lt;p&gt;在一个纯 PCIe 环境中，应该只有三种设备：Root Complex (RC)，PCIe Switch 和 Endpoint Device：&lt;/p&gt;
 &lt;ul&gt;
 &lt;li&gt;RC 是整个 PCIe 拓扑的起始点，所有的下游设备都要连接到 RC 的端口上，也称为 PCIe Root Port，即根端口。RC 并不是一个具体的硬件，
@@ -179,41 +171,41 @@ data-flex-basis="378px"
 &lt;/ul&gt;
 &lt;p&gt;下面以我系统中的 PCIe 拓扑为例：&lt;/p&gt;
 &lt;pre tabindex="0"&gt;&lt;code&gt;-[0000:00]-+-00.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Root Complex [1022:14d8]
-+-00.2 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge IOMMU [1022:14d9]
-+-01.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
-+-01.1-[01-03]----00.0-[02-03]----00.0-[03]--+-00.0 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XT/7900 XTX/7900 GRE/7900M] [1002:744c]
-| +-00.1 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 HDMI/DP Audio [1002:ab30]
-| +-00.2 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 USB [1002:7446]
-| \-00.3 Advanced Micro Devices, Inc. [AMD/ATI] Device [1002:7444]
-+-01.2-[04]----00.0 Samsung Electronics Co Ltd NVMe SSD Controller PM9A1/PM9A3/980PRO [144d:a80a]
-+-02.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
-+-02.1-[05-0d]----00.0-[06-0d]--+-00.0-[07]--
-| +-08.0-[08]--
-| +-09.0-[09]--
-| +-0a.0-[0a]----00.0 Intel Corporation Ethernet Controller I226-V [8086:125c]
-| +-0b.0-[0b]----00.0 MEDIATEK Corp. MT7925 802.11be 160MHz 2x2 PCIe Wireless Network Adapter [Filogic 360] [14c3:7925]
-| +-0c.0-[0c]----00.0 Advanced Micro Devices, Inc. [AMD] 800 Series Chipset USB 3.x XHCI Controller [1022:43fc]
-| \-0d.0-[0d]----00.0 Advanced Micro Devices, Inc. [AMD] 600 Series Chipset SATA Controller [1022:43f6]
-+-02.2-[0e]----00.0 Phison Electronics Corporation E12 NVMe Controller [1987:5012]
-+-03.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
-+-04.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
-+-08.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
-+-08.1-[0f]--+-00.0 Advanced Micro Devices, Inc. [AMD/ATI] Granite Ridge [Radeon Graphics] [1002:13c0]
-| +-00.1 Advanced Micro Devices, Inc. [AMD/ATI] Radeon High Definition Audio Controller [1002:1640]
-| +-00.2 Advanced Micro Devices, Inc. [AMD] Family 19h PSP/CCP [1022:1649]
-| +-00.3 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b6]
-| \-00.4 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b7]
-+-08.3-[10]----00.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 2.0 xHCI [1022:15b8]
-+-14.0 Advanced Micro Devices, Inc. [AMD] FCH SMBus Controller [1022:790b]
-+-14.3 Advanced Micro Devices, Inc. [AMD] FCH LPC Bridge [1022:790e]
-+-18.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 0 [1022:14e0]
-+-18.1 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 1 [1022:14e1]
-+-18.2 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 2 [1022:14e2]
-+-18.3 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 3 [1022:14e3]
-+-18.4 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 4 [1022:14e4]
-+-18.5 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 5 [1022:14e5]
-+-18.6 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 6 [1022:14e6]
-\-18.7 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 7 [1022:14e7]
+ +-00.2 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge IOMMU [1022:14d9]
+ +-01.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
+ +-01.1-[01-03]----00.0-[02-03]----00.0-[03]--+-00.0 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XT/7900 XTX/7900 GRE/7900M] [1002:744c]
+ | +-00.1 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 HDMI/DP Audio [1002:ab30]
+ | +-00.2 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 USB [1002:7446]
+ | \-00.3 Advanced Micro Devices, Inc. [AMD/ATI] Device [1002:7444]
+ +-01.2-[04]----00.0 Samsung Electronics Co Ltd NVMe SSD Controller PM9A1/PM9A3/980PRO [144d:a80a]
+ +-02.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
+ +-02.1-[05-0d]----00.0-[06-0d]--+-00.0-[07]--
+ | +-08.0-[08]--
+ | +-09.0-[09]--
+ | +-0a.0-[0a]----00.0 Intel Corporation Ethernet Controller I226-V [8086:125c]
+ | +-0b.0-[0b]----00.0 MEDIATEK Corp. MT7925 802.11be 160MHz 2x2 PCIe Wireless Network Adapter [Filogic 360] [14c3:7925]
+ | +-0c.0-[0c]----00.0 Advanced Micro Devices, Inc. [AMD] 800 Series Chipset USB 3.x XHCI Controller [1022:43fc]
+ | \-0d.0-[0d]----00.0 Advanced Micro Devices, Inc. [AMD] 600 Series Chipset SATA Controller [1022:43f6]
+ +-02.2-[0e]----00.0 Phison Electronics Corporation E12 NVMe Controller [1987:5012]
+ +-03.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
+ +-04.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
+ +-08.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
+ +-08.1-[0f]--+-00.0 Advanced Micro Devices, Inc. [AMD/ATI] Granite Ridge [Radeon Graphics] [1002:13c0]
+ | +-00.1 Advanced Micro Devices, Inc. [AMD/ATI] Radeon High Definition Audio Controller [1002:1640]
+ | +-00.2 Advanced Micro Devices, Inc. [AMD] Family 19h PSP/CCP [1022:1649]
+ | +-00.3 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b6]
+ | \-00.4 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b7]
+ +-08.3-[10]----00.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 2.0 xHCI [1022:15b8]
+ +-14.0 Advanced Micro Devices, Inc. [AMD] FCH SMBus Controller [1022:790b]
+ +-14.3 Advanced Micro Devices, Inc. [AMD] FCH LPC Bridge [1022:790e]
+ +-18.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 0 [1022:14e0]
+ +-18.1 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 1 [1022:14e1]
+ +-18.2 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 2 [1022:14e2]
+ +-18.3 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 3 [1022:14e3]
+ +-18.4 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 4 [1022:14e4]
+ +-18.5 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 5 [1022:14e5]
+ +-18.6 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 6 [1022:14e6]
+ \-18.7 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Data Fabric; Function 7 [1022:14e7]
 &lt;/code&gt;&lt;/pre&gt;&lt;pre tabindex="0"&gt;&lt;code&gt;00:00.0 Host bridge [0600]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Root Complex [1022:14d8]
 00:00.2 IOMMU [0806]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge IOMMU [1022:14d9]
 00:01.0 Host bridge [0600]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge Dummy Host Bridge [1022:14da]
@@ -294,28 +286,28 @@ Internal 的部分用于连接 CPU 内的非核心功能，比如 USB 控制器�
 用于从 RC 中引出根端口。而 &lt;code&gt;id&lt;/code&gt;，顾名思义，就是为该设备起个别名以便于引用；&lt;code&gt;bus&lt;/code&gt; 则是指该设备要连接到哪个总线上。&lt;/p&gt;
 &lt;p&gt;至于 &lt;code&gt;chassis&lt;/code&gt; 和 &lt;code&gt;slot&lt;/code&gt;，非常奇怪，我几乎找不到说明这些参数的文档。&lt;/p&gt;
 &lt;p&gt;QEMU 的&lt;a class="link" href="https://github.com/qemu/qemu/blob/master/docs/pcie.txt" target="_blank" rel="noopener"
-&gt;文档&lt;/a&gt;中也只是提到了确保每个设备的 (chassis, slot) 组合不同即可。
+ &gt;文档&lt;/a&gt;中也只是提到了确保每个设备的 (chassis, slot) 组合不同即可。
 LLM 认为 &lt;code&gt;chassis&lt;/code&gt; 对应的是实际的机箱，&lt;code&gt;slot&lt;/code&gt; 对应的就是每个机箱中实际的 PCIe 物理插槽。实测发现默认情况下 &lt;code&gt;chassis&lt;/code&gt;
 可以不用设置，只要通过不同的 &lt;code&gt;slot&lt;/code&gt; 区分就行。&lt;/p&gt;
 &lt;p&gt;最后有了 Root Port 后只需在前两个要连接多个下游设备的端口上放上两个交换机即可。&lt;/p&gt;
 &lt;p&gt;至于为什么不直接将所有设备作为 RCiEP 连接到根总线？&lt;br&gt;
 根据&lt;a class="link" href="https://forum.level1techs.com/t/increasing-vfio-vga-performance/133443" target="_blank" rel="noopener"
-&gt;这篇帖子&lt;/a&gt;，
+ &gt;这篇帖子&lt;/a&gt;，
 这样做似乎会有导致 Windows 将设备识别为 PCI 设备的风险。&lt;/p&gt;
 &lt;p&gt;所有设备配置好后在虚拟机内应该可以获得如下的 PCIe 拓扑：&lt;/p&gt;
 &lt;pre tabindex="0"&gt;&lt;code&gt;-[0000:00]-+-00.0 Intel Corporation 82G33/G31/P35/P31 Express DRAM Controller [8086:29c0]
-+-01.0-[01-05]----00.0-[02-05]--+-00.0-[03]----00.0 Red Hat, Inc. Virtio 1.0 network device [1af4:1041]
-| +-01.0-[04]----00.0 Red Hat, Inc. Virtio 1.0 block device [1af4:1042]
-| \-02.0-[05]----00.0 Red Hat, Inc. Virtio 1.0 block device [1af4:1042]
-+-02.0-[06-09]----00.0-[07-09]--+-00.0-[08]----00.0 Advanced Micro Devices, Inc. [AMD] 800 Series Chipset USB 3.x XHCI Controller [1022:43fc]
-| \-01.0-[09]----00.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b6]
-+-03.0-[0a]--+-00.0 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XT/7900 XTX/7900 GRE/7900M] [1002:744c]
-| +-00.1 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 HDMI/DP Audio [1002:ab30]
-| +-00.2 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 USB [1002:7446]
-| \-00.3 Advanced Micro Devices, Inc. [AMD/ATI] Device [1002:7444]
-+-1f.0 Intel Corporation 82801IB (ICH9) LPC Interface Controller [8086:2918]
-+-1f.2 Intel Corporation 82801IR/IO/IH (ICH9R/DO/DH) 6 port SATA Controller [AHCI mode] [8086:2922]
-\-1f.3 Intel Corporation 82801I (ICH9 Family) SMBus Controller [8086:2930]
+ +-01.0-[01-05]----00.0-[02-05]--+-00.0-[03]----00.0 Red Hat, Inc. Virtio 1.0 network device [1af4:1041]
+ | +-01.0-[04]----00.0 Red Hat, Inc. Virtio 1.0 block device [1af4:1042]
+ | \-02.0-[05]----00.0 Red Hat, Inc. Virtio 1.0 block device [1af4:1042]
+ +-02.0-[06-09]----00.0-[07-09]--+-00.0-[08]----00.0 Advanced Micro Devices, Inc. [AMD] 800 Series Chipset USB 3.x XHCI Controller [1022:43fc]
+ | \-01.0-[09]----00.0 Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b6]
+ +-03.0-[0a]--+-00.0 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XT/7900 XTX/7900 GRE/7900M] [1002:744c]
+ | +-00.1 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 HDMI/DP Audio [1002:ab30]
+ | +-00.2 Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 USB [1002:7446]
+ | \-00.3 Advanced Micro Devices, Inc. [AMD/ATI] Device [1002:7444]
+ +-1f.0 Intel Corporation 82801IB (ICH9) LPC Interface Controller [8086:2918]
+ +-1f.2 Intel Corporation 82801IR/IO/IH (ICH9R/DO/DH) 6 port SATA Controller [AHCI mode] [8086:2922]
+ \-1f.3 Intel Corporation 82801I (ICH9 Family) SMBus Controller [8086:2930]
 &lt;/code&gt;&lt;/pre&gt;&lt;h2 id="网络配置"&gt;&lt;a href="#%e7%bd%91%e7%bb%9c%e9%85%8d%e7%bd%ae" class="header-anchor"&gt;&lt;/a&gt;网络配置
 &lt;/h2&gt;&lt;p&gt;对于没有什么特殊需求的情况，选择 NAT 即可。&lt;del&gt;其实是辣鸡消费级无线网卡不支持桥接&lt;/del&gt;&lt;/p&gt;
 &lt;h3 id="配置-networkmanager"&gt;&lt;a href="#%e9%85%8d%e7%bd%ae-networkmanager" class="header-anchor"&gt;&lt;/a&gt;配置 Networkmanager
@@ -336,10 +328,10 @@ LLM 认为 &lt;code&gt;chassis&lt;/code&gt; 对应的是实际的机箱，&lt;co
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;注意改完之后其 &lt;code&gt;ipv6.method&lt;/code&gt; 还要保持为 &lt;code&gt;shared&lt;/code&gt;。&lt;/p&gt;
 &lt;p&gt;然后修改 &lt;code&gt;/etc/nftables.conf&lt;/code&gt; 加入 IPv6 的 NAT 规则：&lt;/p&gt;
 &lt;pre tabindex="0"&gt;&lt;code&gt;table ip6 nat {
-chain postrouting {
-type nat hook postrouting priority srcnat; policy accept;
-oifname != &amp;#34;lo&amp;#34; masquerade
-}
+ chain postrouting {
+ type nat hook postrouting priority srcnat; policy accept;
+ oifname != &amp;#34;lo&amp;#34; masquerade
+ }
 }
 &lt;/code&gt;&lt;/pre&gt;&lt;p&gt;如果原来的文件中包含一些防火墙之类的默认配置，请根据需求决定是否保留。&lt;/p&gt;
 &lt;p&gt;更改完后启用或者重启 &lt;code&gt;nftable.service&lt;/code&gt; 即可：&lt;/p&gt;
@@ -416,22 +408,22 @@ oifname != &amp;#34;lo&amp;#34; masquerade
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;输出应该类似于：&lt;/p&gt;
 &lt;pre tabindex="0"&gt;&lt;code&gt;...
 IOMMU Group 15:
-03:00.0 VGA compatible controller [0300]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XT/7900 XTX/7900 GRE/7900M] [1002:744c] (rev cc)
+ 03:00.0 VGA compatible controller [0300]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XT/7900 XTX/7900 GRE/7900M] [1002:744c] (rev cc)
 IOMMU Group 16:
-03:00.1 Audio device [0403]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 HDMI/DP Audio [1002:ab30]
+ 03:00.1 Audio device [0403]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 HDMI/DP Audio [1002:ab30]
 IOMMU Group 17:
-03:00.2 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 USB [1002:7446]
+ 03:00.2 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 USB [1002:7446]
 IOMMU Group 18:
-03:00.3 Serial bus controller [0c80]: Advanced Micro Devices, Inc. [AMD/ATI] Device [1002:7444]
+ 03:00.3 Serial bus controller [0c80]: Advanced Micro Devices, Inc. [AMD/ATI] Device [1002:7444]
 ...
 IOMMU Group 31:
-0f:00.2 Encryption controller [1080]: Advanced Micro Devices, Inc. [AMD] Family 19h PSP/CCP [1022:1649]
+ 0f:00.2 Encryption controller [1080]: Advanced Micro Devices, Inc. [AMD] Family 19h PSP/CCP [1022:1649]
 IOMMU Group 32:
-0f:00.3 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b6]
+ 0f:00.3 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b6]
 IOMMU Group 33:
-0f:00.4 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b7]
+ 0f:00.4 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 3.1 xHCI [1022:15b7]
 IOMMU Group 34:
-10:00.0 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 2.0 xHCI [1022:15b8]
+ 10:00.0 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 2.0 xHCI [1022:15b8]
 &lt;/code&gt;&lt;/pre&gt;&lt;p&gt;应该能够看到每一个 PCI 设备都被划分到了某个 Group 中。在直通时，每一个 IOMMU Group 是最小单位。
 也就是直通组内的任何一个设备都必须一起直通组内的的其余设备。&lt;/p&gt;
 &lt;p&gt;在我的系统上，每个 USB Controller 都在一个单独的 IOMMU Group 中，因此&lt;strong&gt;单从这个方面看&lt;/strong&gt;，我的每个 controller 可以单独直通。&lt;/p&gt;
@@ -453,8 +445,10 @@ IOMMU Group 34:
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;done&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;pre tabindex="0"&gt;&lt;code&gt;Bus 1 --&amp;gt; 0000:03:00.2 (IOMMU group 17)
 Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
+
 Bus 2 --&amp;gt; 0000:03:00.2 (IOMMU group 17)
 Bus 002 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub
+
 Bus 3 --&amp;gt; 0000:0c:00.0 (IOMMU group 26)
 Bus 003 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
 Bus 003 Device 002: ID 0b05:19d0 ASUSTek Computer, Inc. ROG STRIX SCOPE NX TKL MOONLIGHT WHITE
@@ -462,30 +456,42 @@ Bus 003 Device 003: ID 0b05:1be1 ASUSTek Computer, Inc. USB Audio
 Bus 003 Device 004: ID 0b05:19af ASUSTek Computer, Inc. AURA LED Controller
 Bus 003 Device 005: ID 373b:1085 VXE VXE Mouse 1K Dongle
 Bus 003 Device 006: ID 13d3:3602 IMC Networks Wireless_Device
+
 Bus 4 --&amp;gt; 0000:0c:00.0 (IOMMU group 26)
 Bus 004 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub
+
 Bus 5 --&amp;gt; 0000:0f:00.3 (IOMMU group 32)
 Bus 005 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
+
 Bus 6 --&amp;gt; 0000:0f:00.3 (IOMMU group 32)
 Bus 006 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub
+
 Bus 7 --&amp;gt; 0000:0f:00.4 (IOMMU group 33)
 Bus 007 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
 Bus 007 Device 002: ID 05e3:0610 Genesys Logic, Inc. Hub
 Bus 007 Device 003: ID 2bdf:028a SN0002 HIK 2K Camera
+
 Bus 8 --&amp;gt; 0000:0f:00.4 (IOMMU group 33)
 Bus 008 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub
 Bus 008 Device 002: ID 05e3:0620 Genesys Logic, Inc. GL3523 Hub
+
 Bus 9 --&amp;gt; 0000:10:00.0 (IOMMU group 34)
 Bus 009 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
 &lt;/code&gt;&lt;/pre&gt;&lt;p&gt;通过以上步骤我们拿到的是 USB 控制器到 USB Bus 的映射。那怎么拿到对物理接口的映射？&lt;/p&gt;
 &lt;p&gt;拿一个 USB 设备把你电脑上的所有 USB 口插一遍即可 😯。如果看到某个 USB 设备和某个控制器一起出现，
 那么该接口就是属于这个 Controller 控制的。&lt;/p&gt;
 &lt;h3 id="确定直通的控制器"&gt;&lt;a href="#%e7%a1%ae%e5%ae%9a%e7%9b%b4%e9%80%9a%e7%9a%84%e6%8e%a7%e5%88%b6%e5%99%a8" class="header-anchor"&gt;&lt;/a&gt;确定直通的控制器
-&lt;/h3&gt;&lt;blockquote&gt;
-&lt;p&gt;&lt;strong&gt;警告 ⚠️：接下来的操作可能会导致电脑 Freeze/Kernel Panic，请提前保存好数据。&lt;/strong&gt;&lt;/p&gt;
-&lt;/blockquote&gt;
+&lt;/h3&gt;&lt;blockquote class="alert alert-warning"&gt;
+ &lt;div class="alert-header"&gt;
+ &lt;span class="alert-icon"&gt;⚠️&lt;/span&gt;
+ &lt;span class="alert-title"&gt;警告&lt;/span&gt;
+ &lt;/div&gt;
+ &lt;div class="alert-body"&gt;
+ &lt;p&gt;接下来的操作可能会导致电脑 Freeze/Kernel Panic，请提前保存好数据。&lt;/p&gt;
+ &lt;/div&gt;
+ &lt;/blockquote&gt;
 &lt;p&gt;既然现在拿到 Controller 和物理接口的对应关系，是不是就可以随心所欲分配了呢？&lt;/p&gt;
-&lt;p&gt;Humm&amp;hellip; 没这么简单。&lt;/p&gt;
+&lt;p&gt;Humm... 没这么简单。&lt;/p&gt;
 &lt;p&gt;由于一些神秘原因，如果将宿主机上的某些 USB Controller 绑定到 vfio-pci 驱动并交给客户机使用时会导致整台电脑直接
 Freeze（至少在我这里是这样）。因此必须先测试出有哪些控制器/控制器组合是不能直通的。&lt;/p&gt;
 &lt;p&gt;先看看如何将一个 USB 控制器分配给客户机：&lt;/p&gt;
@@ -512,16 +518,18 @@ Freeze（至少在我这里是这样）。因此必须先测试出有哪些控�
 &lt;li&gt;
 &lt;p&gt;带有 ACS 补丁的内核可以违反 IOMMU Group 作为最小直通单元的限制，
 但有&lt;a class="link" href="https://vfio.blogspot.com/2014/08/iommu-groups-inside-and-out.html" target="_blank" rel="noopener"
-&gt;潜在风险&lt;/a&gt;。linux-zen 内核包含了此补丁。&lt;/p&gt;
+ &gt;潜在风险&lt;/a&gt;。linux-zen 内核包含了此补丁。&lt;/p&gt;
 &lt;/li&gt;
 &lt;li&gt;
 &lt;p&gt;如果你的平台不支持中断重映射，可以在模块参数中添加 &lt;code&gt;allow_unsafe_interrupts&lt;/code&gt;：&lt;/p&gt;
 &lt;pre tabindex="0"&gt;&lt;code class="language-conf" data-lang="conf"&gt;# /etc/modprobe.d/vfio.conf
 options vfio_iommu_type1 allow_unsafe_interrupts=1
 &lt;/code&gt;&lt;/pre&gt;&lt;p&gt;有的指南说需要在 BIOS 中启用 X2APIC，但我实际测试后发现会导致问题。使用默认设置时出现的是如下启动日志：&lt;/p&gt;
-&lt;blockquote&gt;
-&lt;p&gt;12月 30 11:07:19 archlinux kernel: AMD-Vi: Virtual APIC enabled&lt;/p&gt;
-&lt;/blockquote&gt;
+
+ &lt;blockquote&gt;
+ &lt;p&gt;12月 30 11:07:19 archlinux kernel: AMD-Vi: Virtual APIC enabled&lt;/p&gt;
+
+ &lt;/blockquote&gt;
 &lt;p&gt;也能够正常使用 🤖。&lt;/p&gt;
 &lt;/li&gt;
 &lt;li&gt;
@@ -530,17 +538,21 @@ options vfio_iommu_type1 allow_unsafe_interrupts=1
 &lt;/li&gt;
 &lt;li&gt;
 &lt;p&gt;一般来说看着比较反常的控制器直通后挂掉的概率更大，比如控制器：&lt;/p&gt;
-&lt;pre tabindex="0"&gt;&lt;code&gt;10:00.0 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 2.0 xHCI [1022:15b8]
-&lt;/code&gt;&lt;/pre&gt;&lt;p&gt;只管了一个 USB Bus9，一看还是 USB 2.0，对应到主板上的物理接口是一个用于无 CPU 更新 BIOS 的接口。
+
+ &lt;blockquote&gt;
+ &lt;p&gt;10:00.0 USB controller [0c03]: Advanced Micro Devices, Inc. [AMD] Raphael/Granite Ridge USB 2.0 xHCI [1022:15b8]&lt;/p&gt;
+
+ &lt;/blockquote&gt;
+&lt;p&gt;只管了一个 USB Bus9，一看还是 USB 2.0，对应到主板上的物理接口是一个用于无 CPU 更新 BIOS 的接口。
 直通时只要带了这个控制器就会直接死掉。&lt;/p&gt;
 &lt;/li&gt;
 &lt;li&gt;
 &lt;p&gt;一点题外话：&lt;br&gt;
-我这块主板使用的是辣鸡联发科 MT7925 的 wireless &lt;del&gt;为啥你这“高端”主板还用这种B东西&lt;/del&gt;，它的网卡部分甚至和蓝牙是分开的。
-网卡部分走的是 PCIe，问题不大，蓝牙则是通过 USB 连接的（上面的 &amp;ldquo;IMC Networks Wireless_Device&amp;rdquo;）。前段时间装完机后这个蓝牙
+我这块主板使用的是辣鸡联发科 MT7925 的 wireless &lt;del&gt;为啥你这 “高端” 主板还用这种B东西&lt;/del&gt;，它的网卡部分甚至和蓝牙是分开的。
+网卡部分走的是 PCIe，问题不大，蓝牙则是通过 USB 连接的（上面的 &amp;quot;IMC Networks Wireless_Device&amp;quot;）。前段时间装完机后这个蓝牙
 折腾大半天死活搞不定，启动时一看日志全是 USB 的各种 IO Error，开机都要花个3分钟。&lt;/p&gt;
 &lt;p&gt;直到在 Reddit 上发现这一篇神人&lt;a class="link" href="https://www.reddit.com/r/archlinux/comments/zweejv/comment/lwlq8b5" target="_blank" rel="noopener"
-&gt;帖子&lt;/a&gt;。&lt;/p&gt;
+ &gt;帖子&lt;/a&gt;。&lt;/p&gt;
 &lt;p&gt;简单来说就是联发科的 💩 蓝牙模块在固件更新完之后内部状态直接 corrupted 了，必须完全将电脑断电才能重置状态。&lt;/p&gt;
 &lt;p&gt;所以最后直接断电再重启就解决了 😇。&lt;/p&gt;
 &lt;/li&gt;
@@ -549,9 +561,15 @@ options vfio_iommu_type1 allow_unsafe_interrupts=1
 &lt;/h2&gt;&lt;p&gt;哈，终于到了最令人享受的一步了 🥵。&lt;/p&gt;
 &lt;p&gt;如果你不是 RX 7000 系的 GPU，那建议先看看对于其他一般 GPU 的直通指南，因为接下来的部分有几步会和一般步骤完全相反 🙃。&lt;/p&gt;
 &lt;h3 id="隔离-gpu"&gt;&lt;a href="#%e9%9a%94%e7%a6%bb-gpu" class="header-anchor"&gt;&lt;/a&gt;隔离 GPU
-&lt;/h3&gt;&lt;blockquote&gt;
-&lt;p&gt;&lt;strong&gt;注意 ⚠️：显卡隔离成功后宿主机不会再通过此显卡输出画面，请确保有第二张显卡或者 SSH 连接。&lt;/strong&gt;&lt;/p&gt;
-&lt;/blockquote&gt;
+&lt;/h3&gt;&lt;blockquote class="alert alert-important"&gt;
+ &lt;div class="alert-header"&gt;
+ &lt;span class="alert-icon"&gt;📌&lt;/span&gt;
+ &lt;span class="alert-title"&gt;重要&lt;/span&gt;
+ &lt;/div&gt;
+ &lt;div class="alert-body"&gt;
+ &lt;p&gt;显卡隔离成功后宿主机不会再通过此显卡输出画面，请确保有第二张显卡或者 SSH 连接。&lt;/p&gt;
+ &lt;/div&gt;
+ &lt;/blockquote&gt;
 &lt;p&gt;这一步的目的是让 vfio-pci 驱动在相应的设备驱动初始化设备之前绑定到设备上，使设备保持一个相对「干净」的状态。&lt;/p&gt;
 &lt;p&gt;这里使用在系统启动阶段提前加载 VFIO 驱动的方式抢占设备，创建文件&lt;code&gt;/etc/modprobe.d/vfio.conf&lt;/code&gt;：&lt;/p&gt;
 &lt;pre tabindex="0"&gt;&lt;code&gt;softdep drm pre: vfio-pci
@@ -594,9 +612,11 @@ reset bug，因此在内核驱动初始化设备之前抢占应该是最保险�
 &lt;p&gt;然后使用以下命令检查 &lt;code&gt;memlock&lt;/code&gt; 是否有限制：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nb"&gt;ulimit&lt;/span&gt; -Hl
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;如果结果不是 &lt;code&gt;unlimited&lt;/code&gt;，会遇到错误：&lt;/p&gt;
-&lt;blockquote&gt;
-&lt;p&gt;failed to setup container for group 20: memory listener initialization failed: Region mem: vfio_container_dma_map&lt;/p&gt;
-&lt;/blockquote&gt;
+
+ &lt;blockquote&gt;
+ &lt;p&gt;failed to setup container for group 20: memory listener initialization failed: Region mem: vfio_container_dma_map&lt;/p&gt;
+
+ &lt;/blockquote&gt;
 &lt;p&gt;那么还需要修改以下文件来解除运行虚拟机的用户 &lt;code&gt;memlock&lt;/code&gt; 的限制：&lt;/p&gt;
 &lt;pre tabindex="0"&gt;&lt;code class="language-conf" data-lang="conf"&gt;# /etc/security/limits.conf
 windows - memlock unlimited
@@ -615,9 +635,10 @@ windows - memlock unlimited
 &lt;/code&gt;&lt;/pre&gt;&lt;p&gt;欸，这俩文件竟然不一样？既然下面那个能识别出文件类型，那 VBIOS 就一定是它吧 🤓。&lt;/p&gt;
 &lt;p&gt;那就把这个文件传给上面的 ArchLinux 客户机看看：&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;-device vfio-pci,host&lt;span class="o"&gt;=&lt;/span&gt;03:00.0,bus&lt;span class="o"&gt;=&lt;/span&gt;rp2,addr&lt;span class="o"&gt;=&lt;/span&gt;00.0,multifunction&lt;span class="o"&gt;=&lt;/span&gt;on,romfile&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s2"&gt;&amp;#34;7900xt.rom&amp;#34;&lt;/span&gt;
-&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Oops&amp;hellip; 爆炸了：&lt;/p&gt;
-&lt;blockquote&gt;
-&lt;p&gt;qemu: warning: vfio_container_dma_map(0x56261b019040, 0x380810214000, 0x4000, 0x7fb876dc8000) = -14 (错误的地址)&lt;br&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Oops... 爆炸了：&lt;/p&gt;
+
+ &lt;blockquote&gt;
+ &lt;p&gt;qemu: warning: vfio_container_dma_map(0x56261b019040, 0x380810214000, 0x4000, 0x7fb876dc8000) = -14 (错误的地址)&lt;br&gt;
 0000:03:00.3: PCI peer-to-peer transactions on BARs are not supported.&lt;br&gt;
 qemu: vfio: Error: Failed to setup MSI fds: 无效的参数&lt;br&gt;
 qemu: vfio: Error: Failed to enable MSI&lt;br&gt;
@@ -626,7 +647,7 @@ RAX=ffffffff92ffa5a0 RBX=ffff8e9985802000 RCX=0000000000000000 RDX=ffffd0c381c97
 RSI=ffffd0c3807a4034 RDI=ffff8e998581a828 RBP=0000000000000034 RSP=ffffd0c381c97660&lt;br&gt;
 R8 =0000000000000002 R9 =0000000000000000 R10=0000000000000040 R11=0000000000000001&lt;br&gt;
 R12=ffffd0c381c976b0 R13=ffff8e998581a828 R14=0000000000000000 R15=0000000000000000&lt;br&gt;
-RIP=ffffffff92ffa5af RFL=00000282 [&amp;ndash;S&amp;mdash;-] CPL=0 II=0 A20=1 SMM=0 HLT=0&lt;br&gt;
+RIP=ffffffff92ffa5af RFL=00000282 [--S----] CPL=0 II=0 A20=1 SMM=0 HLT=0&lt;br&gt;
 ES =0000 0000000000000000 00000000 00000000&lt;br&gt;
 CS =0010 0000000000000000 ffffffff 00a09b00 DPL=0 CS64 [-RA]&lt;br&gt;
 SS =0018 0000000000000000 ffffffff 00c09300 DPL=0 DS [-WA]&lt;br&gt;
@@ -642,24 +663,29 @@ DR0=0000000000000000 DR1=0000000000000000 DR2=0000000000000000 DR3=0000000000000
 DR6=00000000ffff0ff0 DR7=0000000000000400&lt;br&gt;
 EFER=0000000000200d01&lt;br&gt;
 Code=90 90 90 90 90 f3 0f 1e fa 0f 1f 44 00 00 89 f6 48 03 77 18 &amp;lt;8b&amp;gt; 06 89 02 31 c0 c3 cc cc cc cc 66 0f 1f 44 00 00 90 90 90 90 90 90 90 90 90 90 90 90 90&lt;/p&gt;
-&lt;/blockquote&gt;
+
+ &lt;/blockquote&gt;
 &lt;p&gt;那重启一下再看看？&lt;/p&gt;
-&lt;blockquote&gt;
-&lt;p&gt;qemu-system-x86_64: ../qemu-10.1.2/hw/pci/pci.c:1815: pci_irq_handler: Assertion `0 &amp;lt;= irq_num &amp;amp;&amp;amp; irq_num &amp;lt; PCI_NUM_PINS&amp;rsquo; failed.&lt;/p&gt;
-&lt;/blockquote&gt;
-&lt;p&gt;&amp;hellip;&amp;hellip; 好的，恭喜你，现在显卡的状态已经彻底 corrupted 了 🫨，只能重启宿主机。&lt;del&gt;联发科打过来了？&lt;/del&gt;&lt;/p&gt;
+
+ &lt;blockquote&gt;
+ &lt;p&gt;qemu-system-x86_64: ../qemu-10.1.2/hw/pci/pci.c:1815: pci_irq_handler: Assertion `0 &amp;lt;= irq_num &amp;amp;&amp;amp; irq_num &amp;lt; PCI_NUM_PINS' failed.&lt;/p&gt;
+
+ &lt;/blockquote&gt;
+&lt;p&gt;...... 好的，恭喜你，现在显卡的状态已经彻底 corrupted 了 🫨，只能重启宿主机。&lt;del&gt;联发科打过来了？&lt;/del&gt;&lt;/p&gt;
 &lt;p&gt;再试试从 TechPowerUp 下载的 VBIOS 呢？&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;-device vfio-pci,host&lt;span class="o"&gt;=&lt;/span&gt;03:00.0,bus&lt;span class="o"&gt;=&lt;/span&gt;rp2,addr&lt;span class="o"&gt;=&lt;/span&gt;00.0,multifunction&lt;span class="o"&gt;=&lt;/span&gt;on,romfile&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s2"&gt;&amp;#34;252664.rom&amp;#34;&lt;/span&gt;
-&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Hummm&amp;hellip; 看起来正常启动了，Linux 也能够认到显卡，甚至 Hyprland 都能够正常启动并输出。&lt;br&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Hummm... 看起来正常启动了，Linux 也能够认到显卡，甚至 Hyprland 都能够正常启动并输出。&lt;br&gt;
 万事大吉了吗？Linux 提取的固件有问题？&lt;br&gt;
 仔细看一下启动日志可以发现：&lt;/p&gt;
-&lt;blockquote&gt;
-&lt;p&gt;Dec 28 05:23:21 archlinux kernel: amdgpu 0000:00:04.0: Invalid PCI ROM header signature: expecting 0xaa55, got 0x0000&lt;/p&gt;
-&lt;/blockquote&gt;
+
+ &lt;blockquote&gt;
+ &lt;p&gt;Dec 28 05:23:21 archlinux kernel: amdgpu 0000:00:04.0: Invalid PCI ROM header signature: expecting 0xaa55, got 0x0000&lt;/p&gt;
+
+ &lt;/blockquote&gt;
 &lt;p&gt;WTF？我们的 VBIOS 由于格式不正确压根就没有被加载！&lt;/p&gt;
-&lt;p&gt;🤔&amp;hellip; 那这究竟是怎么回事呢？&lt;br&gt;
+&lt;p&gt;🤔... 那这究竟是怎么回事呢？&lt;br&gt;
 以下是我的个人理解，原文在&lt;a class="link" href="https://forum.level1techs.com/t/the-state-of-amd-rx-7000-series-vfio-passthrough-april-2024/210242" target="_blank" rel="noopener"
-&gt;这里&lt;/a&gt;。&lt;/p&gt;
+ &gt;这里&lt;/a&gt;。&lt;/p&gt;
 &lt;p&gt;由于显卡在启动时已经被宿主机的 UEFI 初始化了一次，如果再在虚拟机中被 UEFI 初始化一次会损坏其内部状态，导致显卡无法正常使用
 （但我更改了启动显卡似乎也没法解决）。因此防止显卡被 UEFI 再次初始化的方式就是提供一个错误的 VBIOS 或者关闭 ROM BAR。&lt;/p&gt;
 &lt;p&gt;还记得在 ArchWiki 页面说一般 Nvidia 的 VBIOS 提取出来后需要去除文件头直至 &lt;code&gt;0xaa55&lt;/code&gt; 为文件开头吗？
@@ -681,15 +707,17 @@ Code=90 90 90 90 90 f3 0f 1e fa 0f 1f 44 00 00 89 f6 48 03 77 18 &amp;lt;8b&amp;
 &lt;/ul&gt;
 &lt;p&gt;除了其余正常工作的情况外，剩下的表现就是 Linux 启动时会出现大量 &lt;code&gt;DMCUB Error&lt;/code&gt; 且没有显示信号输出。&lt;/p&gt;
 &lt;p&gt;在没有启用 multifunction 时，虚拟机的 journal 中会出现以下信息：&lt;/p&gt;
-&lt;blockquote&gt;
-&lt;p&gt;Dec 28 06:53:25 archlinux kernel: amdgpu 0000:00:05.0: amdgpu: System can&amp;rsquo;t access extended configuration space, please check!!&lt;/p&gt;
-&lt;/blockquote&gt;
+
+ &lt;blockquote&gt;
+ &lt;p&gt;Dec 28 06:53:25 archlinux kernel: amdgpu 0000:00:05.0: amdgpu: System can't access extended configuration space, please check!!&lt;/p&gt;
+
+ &lt;/blockquote&gt;
 &lt;p&gt;因此我的&lt;del&gt;瞎猜&lt;/del&gt;推测是：在没有启用 multifunction 时，显卡直接连接到了根总线上，导致被认为这是一个 RCiEP 的 PCI 设备，
 从而依赖传入的 VBIOS 对显卡进行重新初始化，然后就寄了。&lt;/p&gt;
 &lt;/li&gt;
 &lt;li&gt;
 &lt;p&gt;如果显卡遇到了 Reset Bug，可以看看项目 &lt;a class="link" href="https://github.com/gnif/vendor-reset" target="_blank" rel="noopener"
-&gt;vendor-reset&lt;/a&gt; 中是否有自己的显卡。&lt;/p&gt;
+ &gt;vendor-reset&lt;/a&gt; 中是否有自己的显卡。&lt;/p&gt;
 &lt;/li&gt;
 &lt;li&gt;
 &lt;p&gt;不少网上的指南都有说要在宿主机的 BIOS 中关闭 Resizable BAR，但在我这套平台下开启也可以正常运行，如遇问题可以关闭。&lt;/p&gt;
@@ -711,20 +739,20 @@ Code=90 90 90 90 90 f3 0f 1e fa 0f 1f 44 00 00 89 f6 48 03 77 18 &amp;lt;8b&amp;
 &lt;/h3&gt;&lt;p&gt;KEK (Key Exchange Key)&lt;/p&gt;
 &lt;ul&gt;
 &lt;li&gt;&lt;a class="link" href="https://go.microsoft.com/fwlink/p/?linkid=321185" target="_blank" rel="noopener"
-&gt;Microsoft Corporation KEK CA 2011&lt;/a&gt;&lt;/li&gt;
+ &gt;Microsoft Corporation KEK CA 2011&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://go.microsoft.com/fwlink/p/?linkid=2239775" target="_blank" rel="noopener"
-&gt;Microsoft Corporation KEK 2K CA 2023&lt;/a&gt;&lt;/li&gt;
+ &gt;Microsoft Corporation KEK 2K CA 2023&lt;/a&gt;&lt;/li&gt;
 &lt;/ul&gt;
 &lt;p&gt;DB (Allowed Signature database)&lt;/p&gt;
 &lt;ul&gt;
 &lt;li&gt;&lt;a class="link" href="https://go.microsoft.com/fwlink/?LinkID=321192" target="_blank" rel="noopener"
-&gt;Microsoft Windows Production CA 2011&lt;/a&gt;&lt;/li&gt;
+ &gt;Microsoft Windows Production CA 2011&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://go.microsoft.com/fwlink/?LinkID=321194" target="_blank" rel="noopener"
-&gt;Microsoft Corporation UEFI CA 2011&lt;/a&gt;&lt;/li&gt;
+ &gt;Microsoft Corporation UEFI CA 2011&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://go.microsoft.com/fwlink/?LinkID=2239776" target="_blank" rel="noopener"
-&gt;Windows UEFI CA 2023&lt;/a&gt;&lt;/li&gt;
+ &gt;Windows UEFI CA 2023&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://go.microsoft.com/fwlink/?LinkID=2284009" target="_blank" rel="noopener"
-&gt;Microsoft Option ROM UEFI CA 2023&lt;/a&gt;&lt;/li&gt;
+ &gt;Microsoft Option ROM UEFI CA 2023&lt;/a&gt;&lt;/li&gt;
 &lt;/ul&gt;
 &lt;h3 id="注册证书并启用安全启动"&gt;&lt;a href="#%e6%b3%a8%e5%86%8c%e8%af%81%e4%b9%a6%e5%b9%b6%e5%90%af%e7%94%a8%e5%ae%89%e5%85%a8%e5%90%af%e5%8a%a8" class="header-anchor"&gt;&lt;/a&gt;注册证书并启用安全启动
 &lt;/h3&gt;&lt;p&gt;现在你应该有下面这些文件：&lt;/p&gt;
@@ -762,9 +790,9 @@ MicCorUEFCA2011_2011-06-27.crt &amp;#39;microsoft option rom uefi ca 2023.crt&am
 │   └── tpm2-00.permall
 ├── qemu.sh
 └── storage
-├── rootfs.qcow2
-├── virtio-win.iso
-└── Windows10-21H2-LTSC-IoT.iso
+ ├── rootfs.qcow2
+ ├── virtio-win.iso
+ └── Windows10-21H2-LTSC-IoT.iso
 &lt;/code&gt;&lt;/pre&gt;&lt;p&gt;其中 &lt;code&gt;tpm2-00.permall&lt;/code&gt; 会由 &lt;code&gt;swtpm&lt;/code&gt; 自动创建。&lt;br&gt;
 新系统需要的基本配置文件以及前面提及的用于 VFIO 直通的各种配置文件不再赘述，下面主要说明新增的文件。&lt;/p&gt;
 &lt;h3 id="udev-rules"&gt;&lt;a href="#udev-rules" class="header-anchor"&gt;&lt;/a&gt;Udev Rules
@@ -810,8 +838,16 @@ CONFIG_USB_XHCI_HCD=y
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;[Install]&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="na"&gt;WantedBy&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s"&gt;sysinit.target&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;值得注意的是这个 service 的执行时机应该尽可能早，最好在 udevd 开始之前就执行完成，否则会和 udevd 发生 racing，
-导致 journal 里一堆 error。&lt;br&gt;
-还有就是 systemd 的命令行不支持 shell 的 &lt;code&gt;| &amp;gt; &amp;gt;&amp;gt;&lt;/code&gt; 等运算符，需要像这样使用 &lt;code&gt;sh -c&lt;/code&gt; 的方式实现。&lt;/p&gt;
+导致 journal 里一堆 error。&lt;br&gt;&lt;/p&gt;
+&lt;blockquote class="alert alert-note"&gt;
+ &lt;div class="alert-header"&gt;
+ &lt;span class="alert-icon"&gt;📝&lt;/span&gt;
+ &lt;span class="alert-title"&gt;备注&lt;/span&gt;
+ &lt;/div&gt;
+ &lt;div class="alert-body"&gt;
+ &lt;p&gt;systemd 的命令行不支持 shell 的 &lt;code&gt;| &amp;gt; &amp;gt;&amp;gt;&lt;/code&gt; 等运算符，需要像这样使用 &lt;code&gt;sh -c&lt;/code&gt; 的方式实现。&lt;/p&gt;
+ &lt;/div&gt;
+ &lt;/blockquote&gt;
 &lt;h3 id="swtpmservice"&gt;&lt;a href="#swtpmservice" class="header-anchor"&gt;&lt;/a&gt;swtpm.service
 &lt;/h3&gt;&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-ini" data-lang="ini"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="c1"&gt;# /home/windows/.config/systemd/user/swtpm.service&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;[Unit]&lt;/span&gt;
@@ -971,59 +1007,38 @@ CONFIG_USB_XHCI_HCD=y
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="c1"&gt;# Run Guest Windows VM&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nb"&gt;exec&lt;/span&gt; qemu-system-x86_64 &lt;span class="s2"&gt;&amp;#34;&lt;/span&gt;&lt;span class="si"&gt;${&lt;/span&gt;&lt;span class="nv"&gt;qemu_args&lt;/span&gt;&lt;span class="p"&gt;[@]&lt;/span&gt;&lt;span class="si"&gt;}&lt;/span&gt;&lt;span class="s2"&gt;&amp;#34;&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h2 id="效果展示"&gt;&lt;a href="#%e6%95%88%e6%9e%9c%e5%b1%95%e7%a4%ba" class="header-anchor"&gt;&lt;/a&gt;效果展示
-&lt;/h2&gt;&lt;p&gt;&lt;img src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/img/result-01.webp"
-width="2560"
-height="1440"
-loading="lazy"
-alt="GPU-Z"
-class="gallery-image"
-data-flex-grow="177"
-data-flex-basis="426px"
-&gt;
+&lt;/h2&gt;&lt;p&gt;&lt;img alt="GPU-Z" class="gallery-image" data-flex-basis="426px" data-flex-grow="177" height="1440" loading="lazy" sizes="(max-width: 767px) calc(100vw - 30px), (max-width: 1023px) 700px, (max-width: 1279px) 950px, 1232px" src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/img/result-01.webp" width="2560"&gt;
 GPU-Z 检测显卡 PCIe 的逻辑非常神秘，开机后第一次启动显示 PCIe 4.0 x16，过了几秒变成 PCIe，关了再开就退化成 PCI 了 😅。
 但 AMD 驱动以及 Windows 的设备管理器显示的都是 4.0 x16，使用 AIDA64 测了一下带宽也有 23 GiB/s。&lt;/p&gt;
-&lt;p&gt;&lt;img src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/img/result-02.webp"
-width="2560"
-height="1440"
-loading="lazy"
-alt="Horizon-01"
-class="gallery-image"
-data-flex-grow="177"
-data-flex-basis="426px"
-&gt;
-&lt;img src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/img/result-03.webp"
-width="2560"
-height="1440"
-loading="lazy"
-alt="Horizon-02"
-class="gallery-image"
-data-flex-grow="177"
-data-flex-basis="426px"
-&gt;&lt;/p&gt;
+&lt;p&gt;&lt;img alt="Horizon-01" class="gallery-image" data-flex-basis="426px" data-flex-grow="177" height="1440" loading="lazy" sizes="(max-width: 767px) calc(100vw - 30px), (max-width: 1023px) 700px, (max-width: 1279px) 950px, 1232px" src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/img/result-02.webp" width="2560"&gt;
+&lt;img alt="Horizon-02" class="gallery-image" data-flex-basis="426px" data-flex-grow="177" height="1440" loading="lazy" sizes="(max-width: 767px) calc(100vw - 30px), (max-width: 1023px) 700px, (max-width: 1279px) 950px, 1232px" src="https://mirikaryu.github.io/post/qemu-windows-vfio_passthrough/img/result-03.webp" width="2560"&gt;&lt;/p&gt;
 &lt;h2 id="reference"&gt;&lt;a href="#reference" class="header-anchor"&gt;&lt;/a&gt;Reference
 &lt;/h2&gt;&lt;ul&gt;
 &lt;li&gt;&lt;a class="link" href="https://pve.sqlsec.com/4/2/#iommu-sr-iov" target="_blank" rel="noopener"
-&gt;硬件直通&lt;/a&gt;&lt;/li&gt;
+ &gt;硬件直通&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://wiki.archlinux.org/title/Systemd/User" target="_blank" rel="noopener"
-&gt;systemd/User&lt;/a&gt;&lt;/li&gt;
+ &gt;systemd/User&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://github.com/qemu/qemu/blob/master/docs/pcie.txt" target="_blank" rel="noopener"
-&gt;QEMU Docs: PCIe&lt;/a&gt;&lt;/li&gt;
+ &gt;QEMU Docs: PCIe&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://undus.net/posts/qemu-kvm-win11-guest" target="_blank" rel="noopener"
-&gt;QEMU/KVM: Windows 11 Guest&lt;/a&gt;&lt;/li&gt;
+ &gt;QEMU/KVM: Windows 11 Guest&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://wiki.archlinux.org/title/PCI_passthrough_via_OVMF" target="_blank" rel="noopener"
-&gt;PCI passthrough via OVMF&lt;/a&gt;&lt;/li&gt;
+ &gt;PCI passthrough via OVMF&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://projectacrn.github.io/latest/tutorials/waag-secure-boot.html" target="_blank" rel="noopener"
-&gt;Enable Secure Boot in Windows&lt;/a&gt;&lt;/li&gt;
+ &gt;Enable Secure Boot in Windows&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/windows-secure-boot-key-creation-and-management-guidance" target="_blank" rel="noopener"
-&gt;Windows Secure Boot Key Creation and Management Guidance&lt;/a&gt;&lt;/li&gt;
+ &gt;Windows Secure Boot Key Creation and Management Guidance&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://bbs.archlinux.org/viewtopic.php?id=288756" target="_blank" rel="noopener"
-&gt;No Output From 7900XTX GPU via OVMF PCI Passthrough&lt;/a&gt;&lt;/li&gt;
+ &gt;No Output From 7900XTX GPU via OVMF PCI Passthrough&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://forum.level1techs.com/t/increasing-vfio-vga-performance/133443" target="_blank" rel="noopener"
-&gt;Increasing VFIO VGA Performance&lt;/a&gt;&lt;/li&gt;
+ &gt;Increasing VFIO VGA Performance&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://forum.proxmox.com/threads/amd-7900-xt-or-xtx-pci-passthrough.121566/post-528609" target="_blank" rel="noopener"
-&gt;AMD 7900 XT or XTX pci passthrough&lt;/a&gt;&lt;/li&gt;
+ &gt;AMD 7900 XT or XTX pci passthrough&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://forum.level1techs.com/t/the-state-of-amd-rx-7000-series-vfio-passthrough-april-2024/210242" target="_blank" rel="noopener"
-&gt;The state of AMD RX 7000 Series VFIO Passthrough&lt;/a&gt;&lt;/li&gt;
+ &gt;The state of AMD RX 7000 Series VFIO Passthrough&lt;/a&gt;&lt;/li&gt;
 &lt;li&gt;&lt;a class="link" href="https://docs.redhat.com/en/documentation/red_hat_virtualization/4.1/html/installation_guide/appe-configuring_a_hypervisor_host_for_pci_passthrough" target="_blank" rel="noopener"
-&gt;Appendix G. Configuring a Host for PCI Passthrough&lt;/a&gt;&lt;/li&gt;
-&lt;/ul&gt;</description></item></channel></rss>
+ &gt;Appendix G. Configuring a Host for PCI Passthrough&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="cover"&gt;&lt;a href="#cover" class="header-anchor"&gt;&lt;/a&gt;Cover
+&lt;/h2&gt;&lt;p&gt;&lt;a class="link" href="https://wata-tabe.com/special/endcard/" target="_blank" rel="noopener"
+ &gt;第7話／竹嶋えく&lt;/a&gt;&lt;/p&gt;</description></item></channel></rss>
